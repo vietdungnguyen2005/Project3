@@ -1,6 +1,12 @@
 import "server-only";
 
-import { LEDGER_SIZE, type LedgerTransaction, TRANSACTION_RAILS, TRANSACTION_STATUSES } from "@/lib/ledger";
+import {
+  LEDGER_SIZE,
+  type LedgerTransaction,
+  TRANSACTION_RAILS,
+  TRANSACTION_STATUSES,
+  type TransactionStatus,
+} from "@/lib/ledger";
 
 export const PROXY_ALLOWED_REQUEST_HEADERS = ["x-request-id", "x-correlation-id"] as const;
 
@@ -18,6 +24,37 @@ export function sanitizeLedgerLimit(value: string | null, max = LEDGER_SIZE) {
   }
 
   return Math.min(parsed, max);
+}
+
+export function sanitizeLedgerOffset(value: string | null, max = LEDGER_SIZE - 1) {
+  if (!value) {
+    return 0;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return 0;
+  }
+
+  return Math.min(parsed, max);
+}
+
+export function sanitizeLedgerStatus(value: string | null): "all" | TransactionStatus {
+  if (value && TRANSACTION_STATUSES.includes(value as TransactionStatus)) {
+    return value as TransactionStatus;
+  }
+
+  return "all";
+}
+
+export function sanitizeLedgerWindowParams(searchParams: URLSearchParams) {
+  return {
+    offset: sanitizeLedgerOffset(searchParams.get("offset")),
+    limit: sanitizeLedgerLimit(searchParams.get("limit"), 1_500),
+    query: (searchParams.get("query") ?? "").trim().slice(0, 80),
+    status: sanitizeLedgerStatus(searchParams.get("status")),
+  };
 }
 
 export function resolveLedgerServiceUrl(env: RuntimeEnv = process.env, requireHttps = process.env.NODE_ENV === "production") {

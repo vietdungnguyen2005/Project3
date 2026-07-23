@@ -3,6 +3,7 @@ export const TRANSACTION_RAILS = ["ACH", "WIRE", "CARD", "SWIFT", "RTP"] as cons
 
 export type TransactionStatus = (typeof TRANSACTION_STATUSES)[number];
 export type TransactionRail = (typeof TRANSACTION_RAILS)[number];
+export type LedgerStatusFilter = "all" | TransactionStatus;
 
 export type LedgerTransaction = {
   id: string;
@@ -20,7 +21,7 @@ export type LedgerTransaction = {
 
 export type LedgerFilters = {
   query: string;
-  status: "all" | TransactionStatus;
+  status: LedgerStatusFilter;
 };
 
 export type LedgerMetrics = {
@@ -28,6 +29,28 @@ export type LedgerMetrics = {
   throughput: number;
   flagged: number;
   pending: number;
+};
+
+export type LedgerMode = "synthetic" | "brokered";
+
+export type LedgerWindowRequest = {
+  offset?: number;
+  limit?: number;
+  query?: string;
+  status?: LedgerStatusFilter;
+};
+
+export type LedgerWindow = {
+  rows: LedgerTransaction[];
+  total: number;
+  offset: number;
+  limit: number;
+  metrics: LedgerMetrics;
+};
+
+export type LedgerApiResponse = LedgerWindow & {
+  source: string;
+  mode: LedgerMode;
 };
 
 const counterparties = [
@@ -76,19 +99,75 @@ export function generateLedger(count: number): LedgerTransaction[] {
   return Array.from({ length: safeCount }, (_, index) => createLedgerTransaction(index));
 }
 
+function normalizeWindowNumber(value: number | undefined, fallback: number) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return fallback;
+  }
+
+  return Math.max(0, Math.trunc(value));
+}
+
+export function generateLedgerWindow({
+  limit = 500,
+  offset = 0,
+  query = "",
+  status = "all",
+}: LedgerWindowRequest): LedgerWindow {
+  const safeOffset = normalizeWindowNumber(offset, 0);
+  const safeLimit = Math.min(normalizeWindowNumber(limit, 500), LEDGER_SIZE);
+  const filters = { query, status };
+  const rows: LedgerTransaction[] = [];
+  const metrics: LedgerMetrics = { exposure: 0, throughput: 0, flagged: 0, pending: 0 };
+  let total = 0;
+
+  for (let index = 0; index < LEDGER_SIZE; index += 1) {
+    const row = createLedgerTransaction(index);
+
+    if (!matchesLedgerFilters(row, filters)) {
+      continue;
+    }
+
+    metrics.exposure += row.credit - row.debit;
+    metrics.throughput += 1;
+
+    if (row.status === "flagged") {
+      metrics.flagged += 1;
+    }
+
+    if (row.status === "pending") {
+      metrics.pending += 1;
+    }
+
+    if (total >= safeOffset && rows.length < safeLimit) {
+      rows.push(row);
+    }
+
+    total += 1;
+  }
+
+  return {
+    rows,
+    total,
+    offset: safeOffset,
+    limit: safeLimit,
+    metrics,
+  };
+}
+
 export function applyLedgerFilters(rows: LedgerTransaction[], filters: LedgerFilters) {
+  return rows.filter((row) => matchesLedgerFilters(row, filters));
+}
+
+export function matchesLedgerFilters(row: LedgerTransaction, filters: LedgerFilters) {
   const normalizedQuery = filters.query.trim().toLowerCase();
+  const matchesStatus = filters.status === "all" || row.status === filters.status;
+  const matchesQuery =
+    normalizedQuery.length === 0 ||
+    row.id.toLowerCase().includes(normalizedQuery) ||
+    row.account.toLowerCase().includes(normalizedQuery) ||
+    row.counterparty.toLowerCase().includes(normalizedQuery);
 
-  return rows.filter((row) => {
-    const matchesStatus = filters.status === "all" || row.status === filters.status;
-    const matchesQuery =
-      normalizedQuery.length === 0 ||
-      row.id.toLowerCase().includes(normalizedQuery) ||
-      row.account.toLowerCase().includes(normalizedQuery) ||
-      row.counterparty.toLowerCase().includes(normalizedQuery);
-
-    return matchesStatus && matchesQuery;
-  });
+  return matchesStatus && matchesQuery;
 }
 
 export function calculateLedgerMetrics(rows: LedgerTransaction[]): LedgerMetrics {

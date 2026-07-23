@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
-import { generateLedger } from "@/lib/ledger";
+import { calculateLedgerMetrics, generateLedgerWindow, type LedgerMetrics } from "@/lib/ledger";
 import {
   buildForwardHeaders,
   buildLedgerEndpoint,
   normalizeLedgerRows,
   resolveLedgerServiceUrl,
-  sanitizeLedgerLimit,
+  sanitizeLedgerWindowParams,
   secureJsonHeaders,
 } from "@/lib/ledger-proxy";
 
@@ -19,7 +19,7 @@ function secureJson(payload: unknown, status = 200) {
 }
 
 export async function GET(request: Request) {
-  const limit = sanitizeLedgerLimit(new URL(request.url).searchParams.get("limit"));
+  const windowParams = sanitizeLedgerWindowParams(new URL(request.url).searchParams);
   let upstream: string | null;
 
   try {
@@ -29,15 +29,29 @@ export async function GET(request: Request) {
   }
 
   if (!upstream) {
+    const ledgerWindow = generateLedgerWindow(windowParams);
+
     return secureJson({
       source: "synthetic-secure-proxy",
-      rows: generateLedger(limit),
-      total: limit,
+      mode: "synthetic",
+      ...ledgerWindow,
     });
   }
 
   try {
-    const response = await fetch(buildLedgerEndpoint(upstream), {
+    const upstreamEndpoint = new URL(buildLedgerEndpoint(upstream));
+    upstreamEndpoint.searchParams.set("offset", String(windowParams.offset));
+    upstreamEndpoint.searchParams.set("limit", String(windowParams.limit));
+
+    if (windowParams.query) {
+      upstreamEndpoint.searchParams.set("query", windowParams.query);
+    }
+
+    if (windowParams.status !== "all") {
+      upstreamEndpoint.searchParams.set("status", windowParams.status);
+    }
+
+    const response = await fetch(upstreamEndpoint, {
       method: "GET",
       headers: buildForwardHeaders(request),
       cache: "no-store",
@@ -49,14 +63,44 @@ export async function GET(request: Request) {
     }
 
     const data = await response.json();
-    const rows = normalizeLedgerRows(data, limit);
+    const rows = normalizeLedgerRows(data, windowParams.limit);
+    const total =
+      data && typeof data === "object" && typeof (data as { total?: unknown }).total === "number"
+        ? (data as { total: number }).total
+        : rows.length;
+    const offset =
+      data && typeof data === "object" && typeof (data as { offset?: unknown }).offset === "number"
+        ? (data as { offset: number }).offset
+        : windowParams.offset;
+    const metrics =
+      data && typeof data === "object" && isLedgerMetrics((data as { metrics?: unknown }).metrics)
+        ? (data as { metrics: LedgerMetrics }).metrics
+        : calculateLedgerMetrics(rows);
 
     return secureJson({
       source: "brokered-ledger-service",
+      mode: "brokered",
       rows,
-      total: rows.length,
+      total,
+      offset,
+      limit: windowParams.limit,
+      metrics,
     });
   } catch {
     return secureJson({ error: "Ledger proxy request failed" }, 502);
   }
+}
+
+function isLedgerMetrics(value: unknown): value is LedgerMetrics {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const metrics = value as Record<string, unknown>;
+  return (
+    typeof metrics.exposure === "number" &&
+    typeof metrics.throughput === "number" &&
+    typeof metrics.flagged === "number" &&
+    typeof metrics.pending === "number"
+  );
 }

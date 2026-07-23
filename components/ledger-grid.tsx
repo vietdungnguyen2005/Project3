@@ -1,148 +1,69 @@
 "use client";
 
-import { useMemo, useRef } from "react";
-import {
-  flexRender,
-  getCoreRowModel,
-  useReactTable,
-  type ColumnDef,
-} from "@tanstack/react-table";
+import { useEffect, useMemo, useRef } from "react";
+import { getCoreRowModel, useReactTable, type ColumnDef } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDownUp, Loader2 } from "lucide-react";
-import type { LedgerTransaction, TransactionStatus } from "@/lib/ledger";
-
-const money = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  maximumFractionDigits: 2,
-});
-
-const dateTime = new Intl.DateTimeFormat("en-US", {
-  month: "short",
-  day: "2-digit",
-  hour: "2-digit",
-  minute: "2-digit",
-});
-
-const statusClass: Record<TransactionStatus, string> = {
-  settled: "border-emerald-300/30 bg-emerald-300/10 text-emerald-100",
-  pending: "border-sky-300/30 bg-sky-300/10 text-sky-100",
-  flagged: "border-rose-300/35 bg-rose-300/10 text-rose-100",
-  reversed: "border-zinc-300/25 bg-zinc-300/10 text-zinc-200",
-};
+import {
+  formatLedgerDate,
+  formatLedgerMoney,
+  ledgerGridColumns,
+  ledgerGridTemplateColumns,
+  ledgerStatusClass,
+} from "@/components/ledger-grid-columns";
+import type { LedgerTransaction } from "@/lib/ledger";
 
 export function LedgerGrid({
   error,
   isLoading,
-  rows,
+  latestTransaction,
+  onVisibleRangeChange,
+  rowsByIndex,
+  totalRows,
 }: {
   error: string | null;
   isLoading: boolean;
-  rows: LedgerTransaction[];
+  latestTransaction: LedgerTransaction | null;
+  onVisibleRangeChange: (startIndex: number, endIndex: number) => void;
+  rowsByIndex: ReadonlyMap<number, LedgerTransaction>;
+  totalRows: number;
 }) {
   const parentRef = useRef<HTMLDivElement>(null);
 
-  const columns = useMemo<Array<ColumnDef<LedgerTransaction>>>(
-    () => [
-      {
-        accessorKey: "id",
-        header: "Transaction",
-        cell: ({ row }) => <span className="font-medium text-white">{row.original.id}</span>,
-        size: 156,
-      },
-      {
-        accessorKey: "postedAt",
-        header: "Posted",
-        cell: ({ row }) => dateTime.format(new Date(row.original.postedAt)),
-        size: 138,
-      },
-      {
-        accessorKey: "account",
-        header: "Account",
-        cell: ({ row }) => row.original.account,
-        size: 142,
-      },
-      {
-        accessorKey: "counterparty",
-        header: "Counterparty",
-        cell: ({ row }) => row.original.counterparty,
-        size: 176,
-      },
-      {
-        accessorKey: "rail",
-        header: "Rail",
-        cell: ({ row }) => row.original.rail,
-        size: 88,
-      },
-      {
-        accessorKey: "debit",
-        header: "Debit",
-        cell: ({ row }) => (
-          <span className="text-rose-100">{row.original.debit ? money.format(row.original.debit) : "-"}</span>
-        ),
-        size: 132,
-      },
-      {
-        accessorKey: "credit",
-        header: "Credit",
-        cell: ({ row }) => (
-          <span className="text-emerald-100">{row.original.credit ? money.format(row.original.credit) : "-"}</span>
-        ),
-        size: 132,
-      },
-      {
-        accessorKey: "balance",
-        header: "Balance",
-        cell: ({ row }) => money.format(row.original.balance),
-        size: 146,
-      },
-      {
-        accessorKey: "riskScore",
-        header: "Risk",
-        cell: ({ row }) => (
-          <span className={row.original.riskScore > 90 ? "text-rose-100" : "text-[color:var(--muted)]"}>
-            {row.original.riskScore}
-          </span>
-        ),
-        size: 82,
-      },
-      {
-        accessorKey: "status",
-        header: "Status",
-        cell: ({ row }) => (
-          <span className={`rounded border px-2 py-1 text-xs capitalize ${statusClass[row.original.status]}`}>
-            {row.original.status}
-          </span>
-        ),
-        size: 118,
-      },
-      {
-        accessorKey: "region",
-        header: "Region",
-        cell: ({ row }) => row.original.region,
-        size: 92,
-      },
-    ],
+  const tableColumns = useMemo<Array<ColumnDef<LedgerTransaction>>>(
+    () =>
+      ledgerGridColumns.map((column) => ({
+        id: column.id,
+        header: column.header,
+        size: column.width,
+      })),
     [],
   );
 
   // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Table exposes stateful table APIs by design.
   const table = useReactTable({
-    data: rows,
-    columns,
+    data: [],
+    columns: tableColumns,
     getCoreRowModel: getCoreRowModel(),
   });
 
-  const tableRows = table.getRowModel().rows;
   const virtualizer = useVirtualizer({
-    count: tableRows.length,
+    count: totalRows,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 48,
+    estimateSize: () => 56,
     overscan: 14,
   });
-
   const virtualRows = virtualizer.getVirtualItems();
   const totalSize = virtualizer.getTotalSize();
+
+  useEffect(() => {
+    const first = virtualRows[0];
+    const last = virtualRows[virtualRows.length - 1];
+
+    if (first && last) {
+      onVisibleRangeChange(first.index, last.index);
+    }
+  }, [onVisibleRangeChange, virtualRows]);
 
   return (
     <section className="min-w-0 border border-[color:var(--line)] bg-[color:var(--panel)]">
@@ -150,63 +71,126 @@ export function LedgerGrid({
         <div>
           <h2 className="text-lg font-semibold text-white">Historical transaction ledger</h2>
           <p className="mt-1 text-xs text-[color:var(--muted)]">
-            {virtualRows.length.toLocaleString()} mounted rows from {tableRows.length.toLocaleString()} records
+            {virtualRows.length.toLocaleString()} mounted rows from {totalRows.toLocaleString()} records
           </p>
         </div>
-        <span className="flex items-center gap-2 rounded border border-[color:var(--line)] bg-black/25 px-3 py-2 text-xs uppercase tracking-[0.14em] text-[color:var(--muted)]">
-          <ArrowDownUp size={14} />
-          Virtual scroll
-        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          {latestTransaction ? (
+            <span className="rounded border border-emerald-300/25 bg-emerald-300/10 px-3 py-2 text-xs text-emerald-100">
+              Latest {latestTransaction.id}
+            </span>
+          ) : null}
+          <span className="flex items-center gap-2 rounded border border-[color:var(--line)] bg-black/25 px-3 py-2 text-xs uppercase tracking-[0.14em] text-[color:var(--muted)]">
+            <ArrowDownUp size={14} />
+            Virtual scroll
+          </span>
+        </div>
       </div>
 
-      <div className="overflow-x-auto">
-        <div className="min-w-[1400px]">
-          <div className="grid grid-cols-[156px_138px_142px_176px_88px_132px_132px_146px_82px_118px_92px] border-b border-[color:var(--line)] bg-[color:var(--panel-strong)]">
+      <div
+        aria-colcount={ledgerGridColumns.length}
+        aria-label="Virtualized transaction ledger"
+        aria-rowcount={totalRows + 1}
+        className="overflow-x-auto"
+        role="grid"
+      >
+        <div className="w-full sm:min-w-[1400px]">
+          <div
+            className="hidden border-b border-[color:var(--line)] bg-[color:var(--panel-strong)] sm:grid"
+            role="row"
+            style={{ gridTemplateColumns: ledgerGridTemplateColumns }}
+          >
             {table.getHeaderGroups().map((headerGroup) =>
-              headerGroup.headers.map((header) => (
+              headerGroup.headers.map((header, index) => (
                 <div
+                  aria-colindex={index + 1}
                   className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-[0.12em] text-[color:var(--muted)]"
                   key={header.id}
+                  role="columnheader"
                 >
-                  {flexRender(header.column.columnDef.header, header.getContext())}
+                  {String(header.column.columnDef.header)}
                 </div>
               )),
             )}
           </div>
 
           <div
+            aria-busy={isLoading}
             className="relative h-[620px] overflow-auto"
+            data-ledger-viewport
             ref={parentRef}
-            role="region"
-            aria-label="Virtualized transaction ledger"
+            role="rowgroup"
           >
-            {isLoading ? (
+            {isLoading && rowsByIndex.size === 0 ? (
               <div className="flex h-full items-center justify-center gap-3 text-[color:var(--muted)]">
                 <Loader2 className="animate-spin" size={18} />
-                Loading secure ledger stream
+                Loading secure ledger window
               </div>
             ) : error ? (
               <div className="flex h-full items-center justify-center text-rose-100">{error}</div>
+            ) : totalRows === 0 ? (
+              <div className="flex h-full items-center justify-center text-[color:var(--muted)]">
+                No ledger records match the current filters
+              </div>
             ) : (
               <div className="relative w-full" style={{ height: `${totalSize}px` }}>
                 {virtualRows.map((virtualRow) => {
-                  const row = tableRows[virtualRow.index];
+                  const row = rowsByIndex.get(virtualRow.index);
                   return (
                     <div
-                      className="absolute left-0 grid w-full grid-cols-[156px_138px_142px_176px_88px_132px_132px_146px_82px_118px_92px] border-b border-white/[0.045] text-sm text-slate-300 hover:bg-emerald-300/[0.045]"
+                      aria-rowindex={virtualRow.index + 2}
+                      className="absolute left-0 w-full border-b border-white/[0.045] text-sm text-slate-300 hover:bg-emerald-300/[0.045]"
                       data-index={virtualRow.index}
                       data-ledger-row
-                      key={row.id}
+                      key={virtualRow.key}
                       ref={virtualizer.measureElement}
+                      role="row"
                       style={{ transform: `translateY(${virtualRow.start}px)` }}
                     >
-                      {row.getVisibleCells().map((cell) => (
-                        <div className="flex h-12 items-center overflow-hidden px-3" key={cell.id}>
-                          <span className="truncate">
-                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                          </span>
-                        </div>
-                      ))}
+                      <div className="hidden w-full sm:grid" style={{ gridTemplateColumns: ledgerGridTemplateColumns }}>
+                        {ledgerGridColumns.map((column, columnIndex) => (
+                          <div
+                            aria-colindex={columnIndex + 1}
+                            className="flex h-14 items-center overflow-hidden px-3"
+                            key={column.id}
+                            role="gridcell"
+                          >
+                            <span className="truncate">{row ? column.cell(row) : "Loading..."}</span>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="grid gap-2 p-3 sm:hidden">
+                        {row ? (
+                          <>
+                            <div className="flex items-start justify-between gap-3" role="gridcell">
+                              <div>
+                                <p className="font-medium text-white">{row.id}</p>
+                                <p className="mt-1 text-xs text-[color:var(--muted)]">
+                                  {formatLedgerDate(row.postedAt)} · {row.rail} · {row.region}
+                                </p>
+                              </div>
+                              <span className={`rounded border px-2 py-1 text-xs capitalize ${ledgerStatusClass[row.status]}`}>
+                                {row.status}
+                              </span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 text-xs" role="gridcell">
+                              <span className="text-[color:var(--muted)]">Account</span>
+                              <strong className="text-right text-white">{row.account}</strong>
+                              <span className="text-[color:var(--muted)]">Counterparty</span>
+                              <strong className="text-right text-white">{row.counterparty}</strong>
+                              <span className="text-[color:var(--muted)]">Movement</span>
+                              <strong className="text-right text-white">
+                                {row.credit ? formatLedgerMoney(row.credit) : `-${formatLedgerMoney(row.debit)}`}
+                              </strong>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="py-4 text-[color:var(--muted)]" role="gridcell">
+                            Loading ledger row...
+                          </div>
+                        )}
+                      </div>
                     </div>
                   );
                 })}

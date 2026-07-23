@@ -40,4 +40,4 @@ FINTECH_LEDGER_SERVICE_URL=https://ledger-service.example.com
 wrangler secret put FINTECH_SERVICE_TOKEN
 ```
 
-Without these variables, V-Pulse runs in synthetic secure-proxy mode so virtualization and proxy behavior remain demonstrable.
+Without these variables, V-Pulse runs in visibly labeled synthetic secure-proxy mode so virtualization and proxy behavior remain demonstrable. Once a real upstream is configured, stream failures return `502` instead of silently substituting demo events.

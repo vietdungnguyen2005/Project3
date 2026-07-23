@@ -4,10 +4,10 @@ Enterprise fintech transaction ledger dashboard built with Next.js App Router, s
 
 ## What Is Complete
 
-- 100,000-row historical ledger with severe row virtualization.
+- 100,000-row historical ledger with server-windowed fetching and severe row virtualization.
 - Server-side Next.js API brokerage for sensitive ledger endpoints.
-- Realtime transaction feed through `/api/ledger/stream` with upstream SSE passthrough or synthetic fallback.
-- Security headers, production console removal, and no exposed backend tokens in client code.
+- Realtime transaction feed through `/api/ledger/stream`; synthetic demo mode is explicit when no backend is configured.
+- Nonce-based CSP, production console removal, and no exposed backend tokens in client code.
 - Cloudflare Workers deployment config using the current OpenNext adapter path.
 - Automated proof suite for the two required fintech pain points.
 
@@ -30,6 +30,8 @@ Runtime ledger backend variables:
 FINTECH_LEDGER_SERVICE_URL=https://ledger-service.example.com
 FINTECH_SERVICE_TOKEN=server-side-token-only
 ```
+
+Without backend variables, the dashboard runs in visibly labeled synthetic mode for virtualization and proxy validation.
 
 Cloudflare deployment variables can be supplied as either Wrangler standard names or the aliases already present in `../.env`:
 

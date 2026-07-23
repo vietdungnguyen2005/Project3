@@ -9,6 +9,7 @@ V-Pulse keeps sensitive financial connectivity behind server-side Next.js route 
 - Incoming browser `authorization`, `cookie`, and arbitrary secret-like headers are not forwarded.
 - Upstream requests receive a server-issued `Authorization: Bearer ...` header only when `FINTECH_SERVICE_TOKEN` is configured.
 - Production upstream URLs must use HTTPS.
+- If a real upstream stream is configured but unavailable, `/api/ledger/stream` returns `502` instead of falling back to synthetic events.
 
 ## Response Hardening
 
@@ -16,6 +17,7 @@ V-Pulse keeps sensitive financial connectivity behind server-side Next.js route 
 - `X-Content-Type-Options: nosniff`.
 - `X-Frame-Options: DENY`.
 - Content Security Policy restricts scripts, styles, images, fonts, connect targets, frame ancestors, base URI, and forms.
+- Production script policy uses per-request nonces and excludes `unsafe-eval`; inline styles remain allowed for Next.js/Tailwind runtime styles and virtual-row positioning.
 - Permissions Policy disables camera, microphone, geolocation, and payment APIs.
 - `poweredByHeader: false` hides framework fingerprinting.
 - `compiler.removeConsole` strips console calls from production output.

@@ -4,6 +4,7 @@ import {
   calculateLedgerMetrics,
   createLedgerTransaction,
   generateLedger,
+  generateLedgerWindow,
   LEDGER_SIZE,
   prependLiveTransaction,
 } from "@/lib/ledger";
@@ -53,5 +54,16 @@ describe("ledger data model", () => {
     expect(updated).toHaveLength(5);
     expect(updated[0].id).toBe(transaction.id);
     expect(updated.at(-1)?.id).toBe(rows[3].id);
+  });
+
+  it("creates bounded ledger windows without allocating the entire ledger", () => {
+    const window = generateLedgerWindow({ offset: 1_200, limit: 50 });
+
+    expect(window.total).toBe(LEDGER_SIZE);
+    expect(window.offset).toBe(1_200);
+    expect(window.limit).toBe(50);
+    expect(window.rows).toHaveLength(50);
+    expect(window.rows[0].id).toBe("VP-00001201");
+    expect(window.rows.at(-1)?.id).toBe("VP-00001250");
   });
 });

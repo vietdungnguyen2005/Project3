@@ -28,8 +28,8 @@ body {
   background:
     linear-gradient(90deg, rgba(77, 217, 255, 0.05) 1px, transparent 1px),
     linear-gradient(rgba(80, 242, 169, 0.04) 1px, transparent 1px),
-    radial-gradient(circle at 16% 0%, rgba(80, 242, 169, 0.18), transparent 26rem),
-    radial-gradient(circle at 92% 10%, rgba(77, 217, 255, 0.13), transparent 24rem),
+    linear-gradient(145deg, rgba(80, 242, 169, 0.11), transparent 34%),
+    linear-gradient(315deg, rgba(77, 217, 255, 0.09), transparent 36%),
     #07110f;
   background-size: 42px 42px, 42px 42px, auto, auto, auto;
   color: var(--foreground);

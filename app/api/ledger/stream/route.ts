@@ -45,6 +45,17 @@ function createSyntheticLedgerStream(signal: AbortSignal) {
   });
 }
 
+function ledgerStreamUnavailable() {
+  return new Response("Ledger stream unavailable", {
+    status: 502,
+    headers: {
+      "Cache-Control": "no-store, max-age=0",
+      "Content-Type": "text/plain; charset=utf-8",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+}
+
 export async function GET(request: Request) {
   let upstream: string | null;
 
@@ -66,8 +77,10 @@ export async function GET(request: Request) {
       if (response.ok && response.body) {
         return new Response(response.body, { headers: secureEventStreamHeaders() });
       }
+
+      return ledgerStreamUnavailable();
     } catch {
-      // Fall back to synthetic events so the dashboard stays demonstrable.
+      return ledgerStreamUnavailable();
     }
   }
 

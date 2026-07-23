@@ -6,6 +6,7 @@ import {
   normalizeLedgerRows,
   PROXY_ALLOWED_REQUEST_HEADERS,
   resolveLedgerServiceUrl,
+  sanitizeLedgerWindowParams,
   sanitizeLedgerLimit,
 } from "@/lib/ledger-proxy";
 
@@ -61,5 +62,21 @@ describe("ledger proxy security", () => {
     expect(sanitizeLedgerLimit("250")).toBe(250);
     expect(sanitizeLedgerLimit("9999999")).toBe(100_000);
     expect(sanitizeLedgerLimit("-1")).toBe(100_000);
+  });
+
+  it("sanitizes server-side window params for ledger brokerage", () => {
+    const params = new URLSearchParams({
+      offset: "1200",
+      limit: "75",
+      query: "Nova",
+      status: "flagged",
+    });
+
+    expect(sanitizeLedgerWindowParams(params)).toEqual({
+      offset: 1_200,
+      limit: 75,
+      query: "Nova",
+      status: "flagged",
+    });
   });
 });
