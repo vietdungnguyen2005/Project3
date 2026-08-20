@@ -10,6 +10,11 @@ test-results
 backend/target/
 *.log
 *.tsbuildinfo
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
 .env*
 !.env.example
 !.dev.vars.example

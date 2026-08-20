@@ -7,6 +7,7 @@ V-Pulse is a payment-reliability control plane built as portfolio evidence for b
 - Application: [v-pulse-payment-ops.vmarket-vietdung2005.workers.dev](https://v-pulse-payment-ops.vmarket-vietdung2005.workers.dev)
 - Backend readiness: [v-pulse-api.onrender.com/actuator/health/readiness](https://v-pulse-api.onrender.com/actuator/health/readiness)
 - Public deployment proof: [docs/evidence/live-deployment.md](docs/evidence/live-deployment.md)
+- Short-lived AWS deployment proof: [docs/evidence/aws-deployment.md](docs/evidence/aws-deployment.md)
 
 The backend uses Render's free web-service tier, so the first request after 15 minutes without inbound traffic can take about a minute while the container wakes up.
 

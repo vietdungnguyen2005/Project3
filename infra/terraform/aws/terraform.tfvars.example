@@ -1,0 +1,6 @@
+expires_at = "replace-with-teardown-deadline"
+image_tag  = "replace-with-full-git-sha"
+
+# Supply sensitive values only through environment variables:
+# TF_VAR_bff_shared_secret
+# TF_VAR_ops_secret

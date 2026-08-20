@@ -54,3 +54,10 @@ jobs:
       - run: docker compose config --quiet
       - run: helm lint infra/helm/vpulse
       - run: helm template vpulse infra/helm/vpulse > rendered-manifests.yaml
+      - uses: hashicorp/setup-terraform@v3
+      - name: Check and validate AWS infrastructure
+        working-directory: infra/terraform/aws
+        run: |
+          terraform fmt -check
+          terraform init -backend=false
+          terraform validate

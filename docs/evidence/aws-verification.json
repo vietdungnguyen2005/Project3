@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-08-20T15:15:52Z",
+  "region": "us-east-1",
+  "gitSha": "2ec5014f0cdad6a74b5f452d40f6a397bf15017d",
+  "terraform": {
+    "created": 43,
+    "changed": 0,
+    "destroyed": 0
+  },
+  "teardown": {
+    "plannedDestroy": 43,
+    "destroyed": 43,
+    "terraformStateResourcesAfterDestroy": 0
+  },
+  "runtime": {
+    "readinessHttpStatus": 200,
+    "unauthenticatedBusinessApiHttpStatus": 401,
+    "ecsDesired": 1,
+    "ecsRunning": 1,
+    "ecsPending": 0,
+    "rdsEncrypted": true,
+    "rdsPublic": false,
+    "redisTransitEncryption": true,
+    "redisAtRestEncryption": true
+  },
+  "painPoint": {
+    "paymentNumber": "VP-79599EA7D1B0",
+    "initialStatus": "PARKED",
+    "parkedReason": "TIMEOUT",
+    "replayedStatus": "SUCCEEDED",
+    "attemptOutcomes": ["TIMEOUT", "AUTHORIZED"]
+  }
+}

@@ -1,5 +1,7 @@
 # Pain-point evidence: payment rail failure containment
 
+Deployment artifacts: [persistent free-tier proof](evidence/live-deployment.md), [short-lived AWS proof](evidence/aws-deployment.md), and [machine-readable AWS verification](evidence/aws-verification.json).
+
 ## Problem
 
 Japanese payment and enterprise systems must integrate with slow or failure-prone dependencies while preserving traceability and controlled recovery. Blind retries can amplify an outage or create duplicate financial effects. V-Pulse focuses on the operational requirement: make uncertain work visible, bounded, recoverable, and auditable.
