@@ -1,10 +1,12 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3107";
+const localPort = process.env.PLAYWRIGHT_PORT ?? "3207";
+const localURL = `http://127.0.0.1:${localPort}`;
+const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? localURL;
 const webServer = process.env.PLAYWRIGHT_BASE_URL
   ? undefined
   : {
-      command: "npm run build && npm run start -- --port 3107",
+      command: `npm run build && npm run start -- --port ${localPort}`,
       url: baseURL,
       reuseExistingServer: false,
       timeout: 120_000,

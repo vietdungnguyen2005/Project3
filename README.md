@@ -59,4 +59,6 @@ docker compose config --quiet
 helm lint infra/helm/vpulse
 ```
 
+The local browser suite starts on `127.0.0.1:3207`; set `PLAYWRIGHT_PORT` to override that port or `PLAYWRIGHT_BASE_URL` to test an existing deployment.
+
 See [pain-point evidence](docs/PAIN_POINT_PROOF.md), [architecture decisions](docs/ARCHITECTURE.md), [incident runbook](docs/RUNBOOK.md), and the [game-day postmortem](docs/POSTMORTEM.md).
