@@ -11,7 +11,7 @@ Validated on 2026-08-20 against the public deployment.
 | Controlled write path | A synthetic ZENGIN payment (`VP-4D4D287D4C3D`) completed as `SUCCEEDED` through the public BFF |
 | Browser QA | Chromium desktop and 390×844 mobile passed with no console errors |
 
-The deployed backend source commit was `3fe24e8`; the Cloudflare compatibility documentation was deployed from `9b688b2`. Operations credentials remain in provider secret stores and are injected only by the BFF.
+The validated backend revision is `064f92c`. Operations credentials remain in provider secret stores and are injected only by the BFF.
 
 ![Public desktop deployment](live-desktop.png)
 
