@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "v-pulse-ledger-dashboard",
+  "name": "v-pulse-payment-ops",
   "main": ".open-next/worker.js",
   "workers_dev": true,
   "preview_urls": true,
@@ -16,7 +16,7 @@
   "services": [
     {
       "binding": "WORKER_SELF_REFERENCE",
-      "service": "v-pulse-ledger-dashboard"
+      "service": "v-pulse-payment-ops"
     }
   ],
   "vars": {

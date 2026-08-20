@@ -1,0 +1,38 @@
+spring:
+  application:
+    name: v-pulse-backend
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5434/vpulse}
+    username: ${SPRING_DATASOURCE_USERNAME:vpulse}
+    password: ${SPRING_DATASOURCE_PASSWORD:vpulse}
+  data:
+    redis:
+      url: ${SPRING_DATA_REDIS_URL:redis://localhost:6381}
+  threads:
+    virtual:
+      enabled: true
+  flyway:
+    validate-migration-naming: true
+server:
+  port: ${PORT:8080}
+  shutdown: graceful
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  tracing:
+    sampling:
+      probability: ${MANAGEMENT_TRACING_SAMPLING_PROBABILITY:0.1}
+springdoc:
+  api-docs:
+    enabled: ${SPRINGDOC_ENABLED:false}
+vpulse:
+  bff-secret: ${BFF_SHARED_SECRET:local-bff-secret}
+  ops-secret: ${VPULSE_OPS_SECRET:local-ops-secret}
+  deployment-environment: ${DEPLOYMENT_ENVIRONMENT:local}
+  demo-data-enabled: ${VPULSE_DEMO_DATA_ENABLED:false}

@@ -1,5 +1,8 @@
-import { LedgerDashboard } from "@/components/ledger-dashboard";
+import { ReliabilityControlPlane } from "@/components/reliability-control-plane";
+import { connection } from "next/server";
 
-export default function Home() {
-  return <LedgerDashboard />;
+export default async function Home() {
+  // A fresh CSP nonce exists only at request time; static rendering would leave scripts un-nonced.
+  await connection();
+  return <ReliabilityControlPlane />;
 }

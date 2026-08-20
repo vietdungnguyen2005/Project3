@@ -4,7 +4,7 @@ const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3107";
 const webServer = process.env.PLAYWRIGHT_BASE_URL
   ? undefined
   : {
-      command: "npm run dev -- --port 3107",
+      command: "npm run build && npm run start -- --port 3107",
       url: baseURL,
       reuseExistingServer: false,
       timeout: 120_000,

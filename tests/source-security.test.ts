@@ -3,7 +3,8 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 
 const privatePatterns = [
-  "FINTECH_SERVICE_TOKEN",
+  "BFF_SHARED_SECRET",
+  "VPULSE_OPS_SECRET",
   "API_TOKEN",
   "SECRET_ACCESS_KEY",
   "ACCESS_KEY_ID",

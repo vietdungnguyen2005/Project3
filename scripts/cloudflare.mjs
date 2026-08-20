@@ -5,6 +5,7 @@ import process from "node:process";
 
 const projectRoot = process.cwd();
 const parentEnvPath = path.resolve(projectRoot, "..", ".env");
+const projectEnvPath = path.resolve(projectRoot, ".env");
 const localEnvPath = path.resolve(projectRoot, ".env.local");
 
 function loadDotEnv(filePath) {
@@ -61,6 +62,7 @@ function run(command, args) {
 }
 
 loadDotEnv(parentEnvPath);
+loadDotEnv(projectEnvPath);
 loadDotEnv(localEnvPath);
 mapCloudflareAliases();
 
@@ -72,7 +74,9 @@ if (action === "check") {
   process.exit(0);
 }
 
-assertCloudflareCredentials();
+if (action === "deploy" || action === "upload") {
+  assertCloudflareCredentials();
+}
 
 const openNextCli = path.join(projectRoot, "node_modules", "@opennextjs", "cloudflare", "dist", "cli", "index.js");
 

@@ -1,24 +1,14 @@
 import { NextResponse } from "next/server";
-import { resolveLedgerServiceUrl, secureJsonHeaders } from "@/lib/ledger-proxy";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  let ledgerMode: "brokered" | "synthetic" | "misconfigured" = "synthetic";
+  const backendConfigured = Boolean(process.env.BACKEND_ORIGIN && process.env.BFF_SHARED_SECRET);
 
-  try {
-    ledgerMode = resolveLedgerServiceUrl() ? "brokered" : "synthetic";
-  } catch {
-    ledgerMode = "misconfigured";
-  }
-
-  return NextResponse.json(
-    {
-      ok: ledgerMode !== "misconfigured",
-      app: "v-pulse",
-      ledgerMode,
-      timestamp: new Date().toISOString(),
-    },
-    { headers: secureJsonHeaders() },
-  );
+  return NextResponse.json({
+    ok: true,
+    app: "v-pulse",
+    backendConfigured,
+    timestamp: new Date().toISOString(),
+  });
 }

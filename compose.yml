@@ -1,0 +1,68 @@
+name: vpulse
+services:
+  postgres:
+    image: postgres:17.6-alpine
+    environment:
+      POSTGRES_DB: vpulse
+      POSTGRES_USER: vpulse
+      POSTGRES_PASSWORD: vpulse
+    ports: ["5434:5432"]
+    volumes: ["postgres-data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vpulse -d vpulse"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  redis:
+    image: redis:8.2-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
+    ports: ["6381:6379"]
+    volumes: ["redis-data:/data"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  backend:
+    build: ./backend
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/vpulse
+      SPRING_DATASOURCE_USERNAME: vpulse
+      SPRING_DATASOURCE_PASSWORD: vpulse
+      SPRING_DATA_REDIS_URL: redis://redis:6379
+      BFF_SHARED_SECRET: ${BFF_SHARED_SECRET:-local-bff-secret}
+      VPULSE_OPS_SECRET: ${VPULSE_OPS_SECRET:-local-ops-secret}
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
+      VPULSE_DEMO_DATA_ENABLED: "true"
+    ports: ["8080:8080"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/actuator/health/readiness"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
+    security_opt: ["no-new-privileges:true"]
+  prometheus:
+    image: prom/prometheus:v3.7.3
+    command: ["--config.file=/etc/prometheus/prometheus.yml"]
+    volumes: ["./infra/prometheus.yml:/etc/prometheus/prometheus.yml:ro"]
+    ports: ["9090:9090"]
+    depends_on: [backend]
+  grafana:
+    image: grafana/grafana:12.3.0
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: vpulse-local
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports: ["3001:3000"]
+    depends_on: [prometheus]
+volumes:
+  postgres-data:
+  redis-data:

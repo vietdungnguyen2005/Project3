@@ -7,6 +7,7 @@ dist
 coverage
 playwright-report
 test-results
+backend/target/
 *.log
 *.tsbuildinfo
 .env*

@@ -1,0 +1,25 @@
+replicaCount: 2
+image:
+  repository: ghcr.io/example/vpulse-backend
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+service:
+  port: 80
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { cpu: 500m, memory: 512Mi }
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+config:
+  datasourceUrl: jdbc:postgresql://postgres:5432/vpulse
+  redisUrl: redis://redis:6379
+  deploymentEnvironment: production
+secrets:
+  existingSecret: vpulse-runtime
+  datasourceUsernameKey: datasource-username
+  datasourcePasswordKey: datasource-password
+  bffSecretKey: bff-secret
+  opsSecretKey: ops-secret

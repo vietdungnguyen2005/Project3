@@ -1,31 +1,11 @@
-# Security Notes
+# Security model
 
-V-Pulse keeps sensitive financial connectivity behind server-side Next.js route handlers.
+- The public browser calls only `/api/control/*`; `lib/backend-proxy.ts` has a strict allow-list and imports `server-only`.
+- `BFF_SHARED_SECRET` and `VPULSE_OPS_SECRET` are injected only on server-to-server requests and must be distinct strong values in production.
+- Spring compares shared secrets with constant-time `MessageDigest.isEqual`; production startup rejects defaults and values shorter than 32 characters.
+- Mutating fault-profile and replay endpoints require the operations secret in addition to BFF trust.
+- CSP uses a per-request nonce. Responses deny framing, MIME sniffing, camera, microphone, geolocation, and browser payment APIs.
+- Containers and Kubernetes pods run non-root with privilege escalation disabled; the Helm workload uses a read-only root filesystem and drops all Linux capabilities.
+- `.env*`, `.dev.vars`, build output, test reports, and backend targets are ignored. Run `npm audit` and `./mvnw verify` before release.
 
-## Server-Side Brokerage
-
-- Client code never calls `FINTECH_LEDGER_SERVICE_URL` directly.
-- `FINTECH_SERVICE_TOKEN` is read only inside server-only proxy utilities.
-- Incoming browser `authorization`, `cookie`, and arbitrary secret-like headers are not forwarded.
-- Upstream requests receive a server-issued `Authorization: Bearer ...` header only when `FINTECH_SERVICE_TOKEN` is configured.
-- Production upstream URLs must use HTTPS.
-- If a real upstream stream is configured but unavailable, `/api/ledger/stream` returns `502` instead of falling back to synthetic events.
-
-## Response Hardening
-
-- `Cache-Control: no-store` on financial API responses.
-- `X-Content-Type-Options: nosniff`.
-- `X-Frame-Options: DENY`.
-- Content Security Policy restricts scripts, styles, images, fonts, connect targets, frame ancestors, base URI, and forms.
-- Production script policy uses per-request nonces and excludes `unsafe-eval`; inline styles remain allowed for Next.js/Tailwind runtime styles and virtual-row positioning.
-- Permissions Policy disables camera, microphone, geolocation, and payment APIs.
-- `poweredByHeader: false` hides framework fingerprinting.
-- `compiler.removeConsole` strips console calls from production output.
-
-## Deployment Secrets
-
-Do not commit `.env`, `.env.local`, or `.dev.vars`. Use Cloudflare Worker secrets for real backend tokens:
-
-```bash
-wrangler secret put FINTECH_SERVICE_TOKEN
-```
+This demo uses shared service credentials because there is no end-user identity provider. A production control plane should add SSO, role-based replay authorization, secret rotation, immutable centralized audit storage, and CSRF protection appropriate to its authentication mechanism.

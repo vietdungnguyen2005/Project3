@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vpulse.name" . }}
+  labels: {{- include "vpulse.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels: { app.kubernetes.io/name: vpulse }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: vpulse }
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: backend
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports: [{ name: http, containerPort: 8080 }]
+          env:
+            - { name: SPRING_DATASOURCE_URL, value: {{ .Values.config.datasourceUrl | quote }} }
+            - { name: SPRING_DATA_REDIS_URL, value: {{ .Values.config.redisUrl | quote }} }
+            - { name: DEPLOYMENT_ENVIRONMENT, value: {{ .Values.config.deploymentEnvironment | quote }} }
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom: { secretKeyRef: { name: {{ .Values.secrets.existingSecret }}, key: {{ .Values.secrets.datasourceUsernameKey }} } }
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ .Values.secrets.existingSecret }}, key: {{ .Values.secrets.datasourcePasswordKey }} } }
+            - name: BFF_SHARED_SECRET
+              valueFrom: { secretKeyRef: { name: {{ .Values.secrets.existingSecret }}, key: {{ .Values.secrets.bffSecretKey }} } }
+            - name: VPULSE_OPS_SECRET
+              valueFrom: { secretKeyRef: { name: {{ .Values.secrets.existingSecret }}, key: {{ .Values.secrets.opsSecretKey }} } }
+          readinessProbe: { httpGet: { path: /actuator/health/readiness, port: http }, initialDelaySeconds: 10, periodSeconds: 5 }
+          livenessProbe: { httpGet: { path: /actuator/health/liveness, port: http }, initialDelaySeconds: 30, periodSeconds: 10 }
+          startupProbe: { httpGet: { path: /actuator/health/liveness, port: http }, failureThreshold: 30, periodSeconds: 5 }
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+            runAsUser: 10001
+          volumeMounts: [{ name: tmp, mountPath: /tmp }]
+      volumes: [{ name: tmp, emptyDir: {} }]

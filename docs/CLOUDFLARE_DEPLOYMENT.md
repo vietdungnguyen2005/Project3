@@ -1,43 +1,20 @@
-# Cloudflare Deployment
+# Free-tier deployment split
 
-Cloudflare's current Next.js guidance recommends Cloudflare Workers with the OpenNext adapter for full-stack App Router apps with Route Handlers.
+The Next.js BFF is prepared for Cloudflare Workers through OpenNext. The Java backend is a portable non-root Docker image and can run on a free container host while PostgreSQL and Redis use free managed services. This is one repository and one system, not two duplicate projects.
 
-## Local Credential Check
+## Backend host
 
-This repo accepts either standard Wrangler names or the aliases in the parent workspace `.env`:
+Build `backend/Dockerfile`, expose port `8080`, and configure all Spring variables from `.env.example`. Set `DEPLOYMENT_ENVIRONMENT=production`, use distinct random secrets of at least 32 characters, and enable `VPULSE_DEMO_DATA_ENABLED=true` only for the public portfolio demo.
 
-```bash
-npm run cf:check
-```
+## Cloudflare Worker
 
-Accepted aliases:
-
-- `ACCOUNT_ID` -> `CLOUDFLARE_ACCOUNT_ID`
-- `API_TOKEN` -> `CLOUDFLARE_API_TOKEN`
-
-## Build For Workers
+Set the backend origin as a Worker variable and both credentials as Worker secrets:
 
 ```bash
+npx wrangler secret put BFF_SHARED_SECRET
+npx wrangler secret put VPULSE_OPS_SECRET
 npm run cf:build
-```
-
-This runs `opennextjs-cloudflare build` and writes the Worker bundle to `.open-next/`.
-
-## Deploy
-
-```bash
 npm run deploy
 ```
 
-The deploy script loads `../.env` and `.env.local`, maps the aliases above, builds with OpenNext, and deploys `v-pulse-ledger-dashboard` through Wrangler.
-
-## Backend Secrets
-
-For a real ledger backend, configure these as Cloudflare Worker secrets or environment variables:
-
-```bash
-FINTECH_LEDGER_SERVICE_URL=https://ledger-service.example.com
-wrangler secret put FINTECH_SERVICE_TOKEN
-```
-
-Without these variables, V-Pulse runs in visibly labeled synthetic secure-proxy mode so virtualization and proxy behavior remain demonstrable. Once a real upstream is configured, stream failures return `502` instead of silently substituting demo events.
+`BACKEND_ORIGIN` must point to the public HTTPS backend URL. The browser cannot read Worker secrets. If the backend sleeps or is unavailable, the UI shows a truthful degraded state; it never substitutes synthetic payment data.

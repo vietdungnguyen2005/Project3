@@ -12,6 +12,7 @@
   --negative: #ff6b6b;
   --warning: #ffd166;
   --cyan: #4dd9ff;
+  --accent: #ff8a3d;
 }
 
 * {
@@ -33,7 +34,7 @@ body {
     #07110f;
   background-size: 42px 42px, 42px 42px, auto, auto, auto;
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: "Arial Narrow", "Roboto Condensed", Arial, Helvetica, sans-serif;
 }
 
 button,
@@ -44,4 +45,77 @@ select {
 
 ::selection {
   background: rgba(80, 242, 169, 0.26);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid var(--line);
+  background: rgb(0 0 0 / 0.22);
+  padding: 0.35rem 0.55rem;
+}
+
+.health-badge,
+.action-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid var(--line);
+  background: rgb(0 0 0 / 0.28);
+  padding: 0.65rem 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.health-good { color: var(--positive); border-color: rgb(80 242 169 / 0.35); }
+.health-bad { color: #ff8e8e; border-color: rgb(255 107 107 / 0.48); }
+.pulse-dot { width: 7px; height: 7px; background: currentColor; box-shadow: 0 0 12px currentColor; }
+.action-button { color: white; transition: 150ms ease; }
+.action-button:hover { border-color: var(--accent); color: var(--accent); }
+
+.metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); }
+.metric { position: relative; overflow: hidden; min-height: 128px; background: var(--panel); padding: 1rem 1.1rem; }
+.metric::after { content: ""; position: absolute; inset: auto 0 0; height: 2px; background: currentColor; }
+.metric p, .metric span { display: block; color: var(--muted); font-family: monospace; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.14em; }
+.metric strong { display: block; margin: 0.65rem 0 0.45rem; color: white; font-family: monospace; font-size: clamp(1.65rem, 3vw, 2.35rem); }
+.metric-green { color: var(--positive); }.metric-red { color: var(--negative); }.metric-amber { color: var(--warning); }.metric-cyan { color: var(--cyan); }
+
+.panel { border: 1px solid var(--line); background: rgb(7 17 15 / 0.85); box-shadow: 0 20px 60px rgb(0 0 0 / 0.18); }
+.panel-title { display: flex; gap: 0.8rem; border-bottom: 1px solid var(--line); padding: 0.8rem 0.9rem; }
+.panel-title > span { color: var(--accent); font-family: monospace; font-size: 0.7rem; }
+.panel-title h2 { color: white; font-family: monospace; font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; }
+.panel-title p { margin-top: 0.25rem; color: var(--muted); font-size: 0.7rem; }
+.rail-card, .parking-card { border: 1px solid var(--line); background: linear-gradient(135deg, rgb(255 255 255 / 0.035), transparent); padding: 0.9rem; }
+.circuit { border: 1px solid currentColor; padding: 0.2rem 0.35rem; font-family: monospace; font-size: 0.58rem; font-weight: 700; }
+.circuit-closed { color: var(--positive); }.circuit-open { color: var(--negative); }
+.profile-button { border: 1px solid var(--line); padding: 0.45rem 0.2rem; color: var(--muted); font-family: monospace; font-size: 0.58rem; }
+.profile-button:hover { color: white; border-color: var(--accent); }.profile-active { color: #07110f; background: var(--accent); border-color: var(--accent); font-weight: 800; }
+.field-label { display: block; margin: 0.7rem 0 0.3rem; color: var(--muted); font-family: monospace; font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.12em; }
+.field { width: 100%; border: 1px solid var(--line); background: #06100e; padding: 0.65rem; color: white; outline: none; }
+.field:focus { border-color: var(--accent); }
+.primary-button, .replay-button { display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem; border: 1px solid var(--accent); color: #07110f; background: var(--accent); padding: 0.65rem; font-family: monospace; font-size: 0.68rem; font-weight: 800; text-transform: uppercase; }
+.primary-button:hover { background: #ffab73; }.replay-button { width: 100%; border-color: rgb(80 242 169 / 0.38); background: rgb(80 242 169 / 0.09); color: #a7ffd5; font-size: 0.6rem; }
+
+.table-shell { max-height: 846px; overflow: auto; }
+.ops-table { width: 100%; border-collapse: collapse; font-size: 0.76rem; }
+.ops-table th { position: sticky; top: 0; z-index: 1; border-bottom: 1px solid var(--line); background: #0b1715; padding: 0.7rem; color: var(--muted); font-family: monospace; font-size: 0.58rem; text-align: left; text-transform: uppercase; letter-spacing: 0.1em; }
+.ops-table td { border-bottom: 1px solid rgb(143 191 176 / 0.11); padding: 0.68rem; color: #b8cdc6; }
+.ops-table tbody tr { cursor: pointer; transition: background 100ms ease; }.ops-table tbody tr:hover, .ops-table tbody tr:focus { background: rgb(255 138 61 / 0.08); outline: none; }
+.payment-status { border-left: 2px solid currentColor; padding-left: 0.4rem; font-family: monospace; font-size: 0.62rem; }.status-succeeded { color: var(--positive); }.status-processing { color: var(--cyan); }.status-parked { color: var(--negative); }
+
+.drawer-backdrop { position: fixed; z-index: 50; inset: 0; display: flex; justify-content: flex-end; background: rgb(0 0 0 / 0.7); backdrop-filter: blur(3px); }
+.detail-drawer { width: min(100%, 520px); height: 100%; overflow-y: auto; border-left: 1px solid var(--accent); background: #081310; padding: 1.5rem; box-shadow: -30px 0 80px rgb(0 0 0 / 0.5); }
+.drawer-close { float: right; color: var(--muted); }.drawer-close:hover { color: white; }.eyebrow { color: var(--accent); font-family: monospace; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.18em; }
+.detail-drawer .grid div > span { display: block; color: var(--muted); font-family: monospace; font-size: 0.6rem; text-transform: uppercase; }.detail-drawer .grid div > strong { display: block; margin-top: 0.3rem; color: white; }
+.attempt { display: flex; gap: 0.7rem; border-left: 1px solid var(--line); padding: 0.2rem 0 0.9rem 0.9rem; color: var(--accent); }.attempt strong { color: white; font-family: monospace; font-size: 0.72rem; }.attempt p { margin-top: 0.3rem; color: #b8cdc6; font-size: 0.75rem; }.attempt span { display: block; margin-top: 0.35rem; color: var(--muted); font-family: monospace; font-size: 0.6rem; }
+
+@media (max-width: 800px) {
+  .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ops-table th:nth-child(2), .ops-table td:nth-child(2), .ops-table th:nth-child(6), .ops-table td:nth-child(6) { display: none; }
 }

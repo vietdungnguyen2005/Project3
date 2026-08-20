@@ -2,14 +2,14 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://v-pulse-ledger-dashboard.workers.dev"),
-  title: "V-Pulse | Enterprise Transaction Ledger",
-  description: "Secure real-time fintech transaction ledger dashboard with virtualized historical records.",
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://v-pulse-payment-ops.workers.dev"),
+  title: "V-Pulse | Payment Reliability Control Plane",
+  description: "Operational control plane for containing payment rail failures and safely recovering parked work.",
   applicationName: "V-Pulse",
-  keywords: ["fintech ledger", "transaction monitoring", "virtualized dashboard", "secure proxy"],
+  keywords: ["payment reliability", "Spring Boot", "circuit breaker", "incident recovery"],
   openGraph: {
     title: "V-Pulse",
-    description: "Enterprise-grade virtualized transaction ledger with server-side brokerage.",
+    description: "Contain downstream payment failures and safely recover parked work.",
     type: "website",
   },
 };

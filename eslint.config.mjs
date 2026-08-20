@@ -1,5 +1,7 @@
-import coreWebVitals from "eslint-config-next/core-web-vitals";
-import typescript from "eslint-config-next/typescript";
+import next from "@next/eslint-plugin-next";
+import reactHooks from "eslint-plugin-react-hooks";
+import globals from "globals";
+import tseslint from "typescript-eslint";
 
 const eslintConfig = [
   {
@@ -15,8 +17,21 @@ const eslintConfig = [
       "test-results/**",
     ],
   },
-  ...coreWebVitals,
-  ...typescript,
+  ...tseslint.configs.recommended,
+  {
+    files: ["**/*.{ts,tsx}"],
+    languageOptions: {
+      globals: { ...globals.browser, ...globals.node },
+    },
+    plugins: {
+      "@next/next": next,
+      "react-hooks": reactHooks,
+    },
+    rules: {
+      ...next.configs["core-web-vitals"].rules,
+      ...reactHooks.configs.flat.recommended.rules,
+    },
+  },
 ];
 
 export default eslintConfig;
