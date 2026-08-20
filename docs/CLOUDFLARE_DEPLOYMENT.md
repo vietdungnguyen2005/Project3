@@ -18,3 +18,7 @@ npm run deploy
 ```
 
 `BACKEND_ORIGIN` must point to the public HTTPS backend URL. The browser cannot read Worker secrets. If the backend sleeps or is unavailable, the UI shows a truthful degraded state; it never substitutes synthetic payment data.
+
+## Next.js compatibility boundary
+
+The project intentionally retains the Edge `middleware.ts` convention for the nonce-based Content Security Policy. Next.js 16 recommends the Node-runtime `proxy.ts` convention, but OpenNext Cloudflare 1.20 rejects Node middleware during its build. Keep this compatibility shim until OpenNext supports the new proxy runtime; `npm run deploy` is the executable compatibility check.

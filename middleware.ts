@@ -6,7 +6,7 @@ function createNonce() {
   return btoa(String.fromCharCode(...bytes));
 }
 
-export function proxy(request: NextRequest) {
+export function middleware(request: NextRequest) {
   const nonce = createNonce();
   const contentSecurityPolicy = buildContentSecurityPolicy({
     isDevelopment: process.env.NODE_ENV !== "production",
