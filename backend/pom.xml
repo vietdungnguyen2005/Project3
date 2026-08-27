@@ -41,7 +41,7 @@
         <plugins>
             <plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin>
             <plugin>
-                <groupId>com.diffplug.spotless</groupId><artifactId>spotless-maven-plugin</artifactId><version>3.9.0</version>
+                <groupId>com.diffplug.spotless</groupId><artifactId>spotless-maven-plugin</artifactId><version>3.10.0</version>
                 <configuration>
                     <java><palantirJavaFormat><version>2.74.0</version></palantirJavaFormat><removeUnusedImports/><formatAnnotations/></java>
                     <formats><format><includes><include>*.xml</include><include>src/**/*.sql</include><include>src/**/*.yml</include></includes><trimTrailingWhitespace/><endWithNewline/></format></formats>
