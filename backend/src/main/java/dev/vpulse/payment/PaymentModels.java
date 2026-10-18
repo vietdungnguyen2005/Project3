@@ -10,9 +10,9 @@ import java.util.List;
 
 record CreatePaymentRequest(
         @NotBlank @Size(max = 40) String merchantId,
-        @Pattern(regexp = "ZENGIN|CARD|SWIFT") String rail,
+        @NotBlank @Pattern(regexp = "ZENGIN|CARD|SWIFT") String rail,
         @Min(1) @Max(1_000_000_000_000L) long amountMinor,
-        @Pattern(regexp = "JPY") String currency) {}
+        @NotBlank @Pattern(regexp = "JPY") String currency) {}
 
 record PaymentSummary(
         String paymentNumber,
@@ -28,6 +28,8 @@ record PaymentWindow(List<PaymentSummary> rows, long total, int offset, int limi
 record PaymentAttemptView(int attemptNumber, String outcome, int latencyMs, String detail, Instant createdAt) {}
 
 record PaymentDetail(PaymentSummary payment, List<PaymentAttemptView> attempts, String parkedReason) {}
+
+record PaymentCreateResult(PaymentDetail detail, boolean created) {}
 
 record RailView(
         String rail,
@@ -48,4 +50,4 @@ record ReliabilityOverview(
         List<RailView> rails) {}
 
 record FaultProfileRequest(
-        @Pattern(regexp = "NORMAL|TIMEOUT|REJECT") String failureMode, @Min(0) @Max(5000) int delayMs) {}
+        @NotBlank @Pattern(regexp = "NORMAL|TIMEOUT|REJECT") String failureMode, @Min(0) @Max(5000) int delayMs) {}

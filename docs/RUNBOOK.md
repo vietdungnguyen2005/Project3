@@ -19,11 +19,11 @@
 
 ## Recovery
 
-1. Confirm the rail is healthy using a controlled low-value instruction.
-2. Return its demo fault profile to `NORMAL`; this explicitly resets the demo circuit.
-3. Replay one parked instruction and confirm an `AUTHORIZED` attempt and `SUCCEEDED` state.
-4. Drain gradually while watching failure rate, latency, and parking age.
-5. Preserve audit events and open a post-incident review.
+1. Inspect the recorded outcome and replay permission. A healthy rail is necessary, but not sufficient, for safe replay.
+2. `TIMEOUT`, unknown outcomes, interrupted processing and historical rows without explicit permission require reconciliation. The API returns 409 `PAYMENT_RECONCILIATION_REQUIRED`; do not bypass it with SQL or a new create key. Provider lookup/manual resolution is not implemented yet: leave these instructions parked.
+3. Only explicit simulator rejection or a call prevented by the circuit/bulkhead can grant replay permission. Return the demo fault profile to `NORMAL` and confirm health with separate controlled demo traffic.
+4. Request replay of one eligible instruction and confirm an `AUTHORIZED` attempt and `SUCCEEDED` state. Permission is consumed at claim; a later uncertain outcome cannot reuse the earlier permission.
+5. Continue only with eligible instructions while watching failure rate, latency, and parking age. Preserve audit events and open a post-incident review.
 
 ## Rollback
 

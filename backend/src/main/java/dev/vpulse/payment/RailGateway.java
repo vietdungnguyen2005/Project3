@@ -59,8 +59,13 @@ public class RailGateway {
                 circuit.onError(latency, TimeUnit.MILLISECONDS, exception);
                 metrics.counter("vpulse.rail.requests", "rail", rail, "outcome", "failure")
                         .increment();
-                return new RailResult(
-                        exception instanceof TimeoutException ? "TIMEOUT" : "DOWNSTREAM_REJECTED", latency, false);
+                String outcome = exception instanceof TimeoutException
+                        ? "TIMEOUT"
+                        : exception instanceof java.util.concurrent.ExecutionException
+                                        && exception.getCause() instanceof PaymentProcessingException
+                                ? "DOWNSTREAM_REJECTED"
+                                : "OUTCOME_UNKNOWN";
+                return new RailResult(outcome, latency, false);
             }
         } catch (CallNotPermittedException exception) {
             return new RailResult("CIRCUIT_OPEN", elapsed(started), false);
@@ -108,5 +113,12 @@ public class RailGateway {
 
     private record RailConfig(String failureMode, int simulatedDelayMs) {}
 
-    public record RailResult(String outcome, int latencyMs, boolean success) {}
+    public record RailResult(String outcome, int latencyMs, boolean success) {
+        public boolean replayPermitted() {
+            return !success
+                    && ("DOWNSTREAM_REJECTED".equals(outcome)
+                            || "CIRCUIT_OPEN".equals(outcome)
+                            || "BULKHEAD_FULL".equals(outcome));
+        }
+    }
 }

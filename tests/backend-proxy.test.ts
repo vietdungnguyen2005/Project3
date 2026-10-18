@@ -3,6 +3,47 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { proxyBackend } from "@/lib/backend-proxy";
 
 describe("proxyBackend", () => {
+  it("forwards the original payment operation key without generating a replacement", async () => {
+    vi.stubEnv("BACKEND_ORIGIN", "https://backend.test");
+    vi.stubEnv("BFF_SHARED_SECRET", "trusted");
+    const upstream = vi.fn().mockResolvedValue(new Response("{}", { status: 202 }));
+    vi.stubGlobal("fetch", upstream);
+    await proxyBackend("payments", new Request("https://ui.test/api/control/payments", {
+      method: "POST", headers: { "Idempotency-Key": "original-operation-key" }, body: "{}",
+    }));
+    expect(upstream.mock.calls[0][1].headers["Idempotency-Key"]).toBe("original-operation-key");
+  });
+
+  it("forwards session and CSRF headers and preserves session cookies", async () => {
+    vi.stubEnv("BACKEND_ORIGIN", "https://backend.test");
+    vi.stubEnv("BFF_SHARED_SECRET", "trusted");
+    const upstream = vi.fn().mockResolvedValue(new Response(null, { status: 204, headers: { "Set-Cookie": "VPULSE_SESSION=rotated; HttpOnly; Secure; SameSite=Lax" } }));
+    vi.stubGlobal("fetch", upstream);
+    const response = await proxyBackend("auth/login", new Request("https://ui.test/api/control/auth/login", {
+      method: "POST", headers: { Cookie: "VPULSE_SESSION=before", "X-CSRF-TOKEN": "csrf" },
+    }));
+    const options = upstream.mock.calls[0][1];
+    expect(options.headers.Cookie).toBe("VPULSE_SESSION=before");
+    expect(options.headers["X-CSRF-TOKEN"]).toBe("csrf");
+    expect(response.headers.getSetCookie()).toEqual(["VPULSE_SESSION=rotated; HttpOnly; Secure; SameSite=Lax"]);
+    expect(response.status).toBe(204);
+  });
+  it("rejects a cross-origin write without calling upstream", async () => {
+    const upstream = vi.fn();
+    vi.stubGlobal("fetch", upstream);
+    const response = await proxyBackend("payments", new Request("https://ui.test/api/control/payments", {
+      method: "POST", headers: { Origin: "https://attacker.test" },
+    }));
+    expect(response.status).toBe(403);
+    expect(upstream).not.toHaveBeenCalled();
+  });
+  it("rejects mutation methods on read-only routes before forwarding", async () => {
+    const upstream = vi.fn();
+    vi.stubGlobal("fetch", upstream);
+    const response = await proxyBackend("rails?unused=true", new Request("https://ui.test", { method: "POST" }));
+    expect(response.status).toBe(405);
+    expect(upstream).not.toHaveBeenCalled();
+  });
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();

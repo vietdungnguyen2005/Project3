@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Activity, AlertTriangle, CircleCheck, Clock3, Play, RefreshCw, Send, ShieldCheck, X } from "lucide-react";
+import { OperatorSessionPanel } from "@/components/operator-session-panel";
+import { operatorFetch } from "@/lib/operator-session";
+import { PaymentCreateHandler } from "@/lib/payment-create/handler";
 import {
   classifyReliability,
   formatYen,
@@ -16,11 +19,11 @@ import {
 type ApiFailure = { code?: string; message?: string };
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`/api/control/${path}`, {
+  const response = await operatorFetch(`/api/control/${path}`, {
     ...init,
     headers: init?.body ? { "Content-Type": "application/json", ...init.headers } : init?.headers,
   });
-  const body = (await response.json()) as T & ApiFailure;
+  const body = (await response.json().catch(() => ({}))) as T & ApiFailure;
   if (!response.ok) throw new Error(body.message ?? `Request failed (${response.status})`);
   return body;
 }
@@ -32,6 +35,10 @@ function secondsLabel(seconds: number) {
 }
 
 export function ReliabilityControlPlane() {
+  const [paymentCreate] = useState(() => new PaymentCreateHandler({ storage: {
+    getItem: key => window.sessionStorage.getItem(key), setItem: (key, value) => window.sessionStorage.setItem(key, value),
+    removeItem: key => window.sessionStorage.removeItem(key),
+  }, request: operatorFetch }));
   const [overview, setOverview] = useState<ReliabilityOverview | null>(null);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [parking, setParking] = useState<Payment[]>([]);
@@ -41,6 +48,7 @@ export function ReliabilityControlPlane() {
   const [lastSync, setLastSync] = useState<Date | null>(null);
   const [rail, setRail] = useState<RailName>("ZENGIN");
   const [amount, setAmount] = useState("42000");
+  const [canOperate, setCanOperate] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -94,12 +102,10 @@ export function ReliabilityControlPlane() {
 
   async function submitPayment(event: React.FormEvent) {
     event.preventDefault();
-    await run("payment", () =>
-      api("payments", {
-        method: "POST",
-        body: JSON.stringify({ merchantId: "DEMO-MERCHANT", rail, amountMinor: Number(amount), currency: "JPY" }),
-      }),
-    );
+    await run("payment", async () => {
+      const result = await paymentCreate.execute({ merchantId: "DEMO-MERCHANT", rail, amountMinor: Number(amount), currency: "JPY" });
+      if (!result.success) throw new Error(result.error.message);
+    });
   }
 
   async function openDetail(paymentNumber: string) {
@@ -126,7 +132,7 @@ export function ReliabilityControlPlane() {
             <p className="mb-1 font-mono text-xs uppercase tracking-[0.26em] text-[color:var(--accent)]">Payment reliability control plane</p>
             <h1 className="text-4xl font-black uppercase tracking-[-0.04em] text-white sm:text-6xl">V-Pulse / Ops</h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-[color:var(--muted)]">
-              Contain failing payment rails, park uncertain work, and recover it without duplicate settlement.
+              Inspect simulated rail failures, parked instructions, and operator recovery controls.
             </p>
           </div>
           <div className="flex items-center gap-3 font-mono text-xs">
@@ -138,6 +144,8 @@ export function ReliabilityControlPlane() {
             </button>
           </div>
         </header>
+
+        <OperatorSessionPanel onAccessChange={setCanOperate} />
 
         {error ? (
           <div className="mb-4 flex items-center gap-3 border border-red-400/40 bg-red-950/45 px-4 py-3 text-sm text-red-100" role="alert">
@@ -164,7 +172,7 @@ export function ReliabilityControlPlane() {
                   </div>
                   <div className="mt-4 grid grid-cols-3 gap-1">
                     {(["NORMAL", "TIMEOUT", "REJECT"] as FailureMode[]).map((mode) => (
-                      <button className={`profile-button ${item.failureMode === mode ? "profile-active" : ""}`} disabled={busy !== null} key={mode} onClick={() => void setFaultProfile(item.rail, mode)} type="button">{mode}</button>
+                      <button className={`profile-button ${item.failureMode === mode ? "profile-active" : ""}`} disabled={!canOperate || busy !== null} key={mode} onClick={() => void setFaultProfile(item.rail, mode)} type="button">{mode}</button>
                     ))}
                   </div>
                   <p className="mt-3 font-mono text-[10px] uppercase tracking-wider text-[color:var(--muted)]">{item.bufferedCalls} calls sampled · {item.simulatedDelayMs}ms latency</p>
@@ -180,7 +188,7 @@ export function ReliabilityControlPlane() {
               </select>
               <label className="field-label" htmlFor="amount">Amount (JPY)</label>
               <input className="field" id="amount" min="1" onChange={(event) => setAmount(event.target.value)} required type="number" value={amount} />
-              <button className="primary-button mt-3 w-full" disabled={busy !== null || Number(amount) < 1} type="submit"><Send size={14} /> Process payment</button>
+              <button className="primary-button mt-3 w-full" disabled={!canOperate || busy !== null || Number(amount) < 1} type="submit"><Send size={14} /> Process payment</button>
             </form>
           </aside>
 
@@ -208,7 +216,7 @@ export function ReliabilityControlPlane() {
                 <article className="parking-card" key={payment.paymentNumber}>
                   <div className="flex justify-between gap-2"><button className="font-mono text-xs font-bold text-white hover:text-[color:var(--accent)]" onClick={() => void openDetail(payment.paymentNumber)} type="button">{payment.paymentNumber}</button><span className="font-mono text-[10px] text-red-300">PARKED</span></div>
                   <p className="mt-2 text-xs text-[color:var(--muted)]">{payment.rail} · {formatYen(payment.amountMinor)}</p>
-                  <button className="replay-button mt-3" disabled={busy !== null} onClick={() => void run(`replay-${payment.paymentNumber}`, () => api(`parking/${payment.paymentNumber}/replay`, { method: "POST" }))} type="button"><Play size={12} /> Replay once rail is healthy</button>
+                  <button className="replay-button mt-3" disabled={!canOperate || busy !== null} onClick={() => void run(`replay-${payment.paymentNumber}`, () => api(`parking/${payment.paymentNumber}/replay`, { method: "POST" }))} type="button"><Play size={12} /> Request controlled replay</button>
                 </article>
               ))}
               {!parking.length && overview ? <div className="p-8 text-center text-sm text-[color:var(--muted)]"><CircleCheck className="mx-auto mb-3 text-emerald-300" /> Recovery queue clear</div> : null}
@@ -217,7 +225,7 @@ export function ReliabilityControlPlane() {
         </section>
 
         <footer className="mt-4 flex flex-wrap justify-between gap-3 border-t border-[color:var(--line)] py-4 font-mono text-[10px] uppercase tracking-widest text-[color:var(--muted)]">
-          <span>Automatic refresh / 15s · mutations require server-held ops credential</span><span>Last sync / {lastSync?.toLocaleTimeString("en-GB") ?? "pending"}</span>
+          <span>Automatic refresh / 15s · mutations require an operator session + CSRF</span><span>Last sync / {lastSync?.toLocaleTimeString("en-GB") ?? "pending"}</span>
         </footer>
       </div>
 

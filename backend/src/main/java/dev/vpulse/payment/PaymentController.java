@@ -10,7 +10,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -43,9 +42,15 @@ public class PaymentController {
     }
 
     @PostMapping("/payments")
-    @ResponseStatus(HttpStatus.CREATED)
-    PaymentDetail create(@Valid @RequestBody CreatePaymentRequest request) {
-        return paymentService.create(request);
+    org.springframework.http.ResponseEntity<PaymentDetail> create(
+            @Valid @RequestBody CreatePaymentRequest request,
+            @RequestHeader(value = "Idempotency-Key", required = false) String key,
+            java.security.Principal principal) {
+        var result = paymentService.create(request, principal.getName(), key);
+        var status = "PROCESSING".equals(result.detail().payment().status())
+                ? HttpStatus.ACCEPTED
+                : result.created() ? HttpStatus.CREATED : HttpStatus.OK;
+        return org.springframework.http.ResponseEntity.status(status).body(result.detail());
     }
 
     @GetMapping("/parking")
@@ -54,9 +59,12 @@ public class PaymentController {
     }
 
     @PostMapping("/parking/{paymentNumber}/replay")
-    PaymentDetail replay(@PathVariable String paymentNumber, @RequestHeader("X-V-Pulse-Ops-Secret") String opsSecret) {
+    PaymentDetail replay(
+            @PathVariable String paymentNumber,
+            @RequestHeader("X-V-Pulse-Ops-Secret") String opsSecret,
+            java.security.Principal principal) {
         opsAuthorizer.requireAuthorized(opsSecret);
-        return paymentService.replay(paymentNumber);
+        return paymentService.replay(paymentNumber, principal.getName());
     }
 
     @GetMapping("/rails")

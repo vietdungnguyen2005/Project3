@@ -1,4 +1,8 @@
 spring:
+  session:
+    timeout: 15m
+    jdbc:
+      initialize-schema: never
   application:
     name: v-pulse-backend
   datasource:

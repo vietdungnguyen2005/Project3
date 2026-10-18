@@ -28,7 +28,7 @@ public class StalledPaymentRecovery {
                 .list();
         stalled.forEach(instruction -> {
             jdbc.sql(
-                            "INSERT INTO parked_payment(payment_id, reason) VALUES (:id, 'PROCESS_INTERRUPTED') ON CONFLICT(payment_id) DO NOTHING")
+                            "INSERT INTO parked_payment(payment_id, reason, replay_permitted) VALUES (:id, 'PROCESS_INTERRUPTED', FALSE) ON CONFLICT(payment_id) DO UPDATE SET reason='PROCESS_INTERRUPTED', replay_permitted=FALSE, parked_at=NOW()")
                     .param("id", instruction.id())
                     .update();
             jdbc.sql(

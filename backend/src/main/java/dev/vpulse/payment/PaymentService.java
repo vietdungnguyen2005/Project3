@@ -65,45 +65,144 @@ public class PaymentService {
         return new PaymentDetail(payment, attempts, parked);
     }
 
-    public PaymentDetail create(CreatePaymentRequest request) {
-        if (!rateLimiter.allow(request.merchantId())) throw new RateLimitExceededException();
-        UUID id = UUID.randomUUID();
-        String number = "VP-" + id.toString().replace("-", "").substring(0, 12).toUpperCase();
-        jdbc.sql(
-                        "INSERT INTO payment_instruction (id, payment_number, merchant_id, rail, amount_minor, currency, status) VALUES (:id,:number,:merchant,:rail,:amount,:currency,'PROCESSING')")
-                .param("id", id)
-                .param("number", number)
-                .param("merchant", request.merchantId().trim())
-                .param("rail", request.rail())
-                .param("amount", request.amountMinor())
-                .param("currency", request.currency())
-                .update();
-        process(id, number, request.rail(), "system-ingress");
-        return detail(number);
+    public PaymentCreateResult create(CreatePaymentRequest request, String actor, String key) {
+        if (key == null || !key.matches("[A-Za-z0-9][A-Za-z0-9._:-]{7,119}"))
+            throw new InvalidPaymentRequestException("A valid 8–120 character Idempotency-Key is required.");
+        String merchant = request.merchantId().trim().toUpperCase(java.util.Locale.ROOT);
+        if (!merchant.matches("[A-Z0-9][A-Z0-9._-]{0,39}"))
+            throw new InvalidPaymentRequestException(
+                    "Merchant ID must be a canonical ASCII identifier of at most 40 characters.");
+        String keyHash = digest("payment-create-key:v1\n" + key);
+        String fingerprint = digest(String.join(
+                "\n",
+                "payment-create-request:v1",
+                merchant,
+                request.rail(),
+                Long.toString(request.amountMinor()),
+                request.currency()));
+        var claimed = transactions.execute(ignored -> {
+            jdbc.sql("SET LOCAL lock_timeout='3s'").update();
+            jdbc.sql("SET LOCAL statement_timeout='8s'").update();
+            jdbc.sql("SELECT pg_advisory_xact_lock(hashtextextended(:key,0))")
+                    .param("key", "vpulse:create:" + merchant + ":" + keyHash)
+                    .query((rs, row) -> true)
+                    .single();
+            var existing = jdbc.sql(
+                            """
+                    SELECT o.request_hash,p.id,p.payment_number,p.rail FROM payment_create_operation o
+                    JOIN payment_instruction p ON p.id=o.payment_id WHERE o.merchant_id=:merchant AND o.key_hash=:key
+                    """)
+                    .param("merchant", merchant)
+                    .param("key", keyHash)
+                    .query(ExistingOperation.class)
+                    .optional();
+            if (existing.isPresent()) {
+                var operation = existing.get();
+                if (!operation.requestHash().equals(fingerprint)) throw new PaymentIdempotencyConflictException();
+                return new CreateClaim(operation.id(), operation.paymentNumber(), operation.rail(), false);
+            }
+            if (!rateLimiter.allow(merchant)) throw new RateLimitExceededException();
+            UUID id = UUID.randomUUID();
+            String number =
+                    "VP-" + id.toString().replace("-", "").substring(0, 12).toUpperCase(java.util.Locale.ROOT);
+            jdbc.sql(
+                            "INSERT INTO payment_instruction (id, payment_number, merchant_id, rail, amount_minor, currency, status) VALUES (:id,:number,:merchant,:rail,:amount,:currency,'PROCESSING')")
+                    .param("id", id)
+                    .param("number", number)
+                    .param("merchant", merchant)
+                    .param("rail", request.rail())
+                    .param("amount", request.amountMinor())
+                    .param("currency", request.currency())
+                    .update();
+            jdbc.sql(
+                            "INSERT INTO payment_create_operation(merchant_id,key_hash,request_hash,payment_id) VALUES(:merchant,:key,:hash,:id)")
+                    .param("merchant", merchant)
+                    .param("key", keyHash)
+                    .param("hash", fingerprint)
+                    .param("id", id)
+                    .update();
+            jdbc.sql(
+                            "INSERT INTO audit_event(id,actor,action,aggregate_id,details) VALUES(:id,:actor,'PAYMENT_RECEIVED',:number,'{}')")
+                    .param("id", UUID.randomUUID())
+                    .param("actor", actor)
+                    .param("number", number)
+                    .update();
+            return new CreateClaim(id, number, request.rail(), true);
+        });
+        if (claimed == null) throw new IllegalStateException("Create claim returned no state");
+        if (claimed.created()) process(claimed.id(), claimed.paymentNumber(), claimed.rail(), actor, 0);
+        return new PaymentCreateResult(detail(claimed.paymentNumber()), claimed.created());
     }
 
-    public PaymentDetail replay(String paymentNumber) {
-        var state = jdbc.sql(
-                        """
+    private static String digest(String value) {
+        try {
+            return java.util.HexFormat.of()
+                    .formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                            .digest(value.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (java.security.NoSuchAlgorithmException failure) {
+            throw new IllegalStateException(failure);
+        }
+    }
+
+    private record ExistingOperation(String requestHash, UUID id, String paymentNumber, String rail) {}
+
+    private record CreateClaim(UUID id, String paymentNumber, String rail, boolean created) {}
+
+    public PaymentDetail replay(String paymentNumber, String actor) {
+        var state = transactions.execute(ignored -> {
+            var candidate = jdbc.sql(
+                            """
+                    SELECT p.id,p.rail,p.version,p.status
+                    FROM payment_instruction p
+                    WHERE p.payment_number=:number FOR UPDATE OF p
+                    """)
+                    .param("number", paymentNumber)
+                    .query(ReplayCandidate.class)
+                    .optional()
+                    .orElseThrow(() -> new PaymentProcessingException("Payment not found"));
+            if (!"PARKED".equals(candidate.status())) throw new PaymentProcessingException("Payment is not parked");
+            // Read permission in a new statement after the instruction lock has been acquired.
+            // A join read taken before waiting could retain an earlier attempt's permission.
+            boolean permitted = jdbc.sql("SELECT replay_permitted FROM parked_payment WHERE payment_id=:id")
+                    .param("id", candidate.id())
+                    .query(Boolean.class)
+                    .optional()
+                    .orElse(false);
+            if (!permitted) throw new PaymentReconciliationRequiredException();
+            var claimed = jdbc.sql(
+                            """
                         UPDATE payment_instruction
                         SET status='PROCESSING', version=version+1, updated_at=NOW()
                         WHERE payment_number=:number AND status='PARKED'
-                        RETURNING id, rail
+                        RETURNING id, rail, version
                         """)
-                .param("number", paymentNumber)
-                .query(PaymentState.class)
-                .optional()
-                .orElseThrow(() -> new PaymentProcessingException("Payment is missing or is not parked"));
-        jdbc.sql("UPDATE parked_payment SET replay_count=replay_count+1, last_replayed_at=NOW() WHERE payment_id=:id")
-                .param("id", state.id())
-                .update();
-        process(state.id(), paymentNumber, state.rail(), "operations-replay");
+                    .param("number", paymentNumber)
+                    .query(PaymentState.class)
+                    .optional()
+                    .orElseThrow(() -> new PaymentProcessingException("Payment is missing or is not parked"));
+            jdbc.sql(
+                            "UPDATE parked_payment SET replay_count=replay_count+1, last_replayed_at=NOW(), replay_permitted=FALSE WHERE payment_id=:id")
+                    .param("id", claimed.id())
+                    .update();
+            return claimed;
+        });
+        if (state == null) throw new IllegalStateException("Replay claim returned no state");
+        process(state.id(), paymentNumber, state.rail(), actor, state.version());
         return detail(paymentNumber);
     }
 
-    private void process(UUID id, String number, String rail, String actor) {
+    private void process(UUID id, String number, String rail, String actor, long claimedVersion) {
         var result = gateway.authorize(rail);
         transactions.executeWithoutResult(ignored -> {
+            String status = result.success() ? "SUCCEEDED" : "PARKED";
+            int finalized = jdbc.sql(
+                            "UPDATE payment_instruction SET status=:status, version=version+1, updated_at=NOW() WHERE id=:id AND status='PROCESSING' AND version=:version")
+                    .param("status", status)
+                    .param("id", id)
+                    .param("version", claimedVersion)
+                    .update();
+            // Recovery or another claim owns the instruction now. A late result cannot mutate it.
+            if (finalized == 0) return;
             int attempt = jdbc.sql("SELECT COUNT(*) + 1 FROM payment_attempt WHERE payment_id=:id")
                     .param("id", id)
                     .query(Integer.class)
@@ -119,12 +218,9 @@ public class PaymentService {
                             "detail",
                             result.success()
                                     ? "Downstream authorization completed"
-                                    : "Request parked for safe operator recovery")
-                    .update();
-            String status = result.success() ? "SUCCEEDED" : "PARKED";
-            jdbc.sql("UPDATE payment_instruction SET status=:status, version=version+1, updated_at=NOW() WHERE id=:id")
-                    .param("status", status)
-                    .param("id", id)
+                                    : result.replayPermitted()
+                                            ? "No execution confirmed; controlled replay permitted"
+                                            : "Provider outcome unverified; reconciliation required before authorization")
                     .update();
             if (result.success()) {
                 jdbc.sql("DELETE FROM parked_payment WHERE payment_id=:id")
@@ -132,9 +228,10 @@ public class PaymentService {
                         .update();
             } else {
                 jdbc.sql(
-                                "INSERT INTO parked_payment(payment_id,reason) VALUES (:id,:reason) ON CONFLICT(payment_id) DO UPDATE SET reason=EXCLUDED.reason, parked_at=NOW()")
+                                "INSERT INTO parked_payment(payment_id,reason,replay_permitted) VALUES (:id,:reason,:safe) ON CONFLICT(payment_id) DO UPDATE SET reason=EXCLUDED.reason, replay_permitted=EXCLUDED.replay_permitted, parked_at=NOW()")
                         .param("id", id)
                         .param("reason", result.outcome())
+                        .param("safe", result.replayPermitted())
                         .update();
             }
             jdbc.sql(
@@ -207,7 +304,9 @@ public class PaymentService {
                 .orElseThrow();
     }
 
-    private record PaymentState(UUID id, String rail) {}
+    private record PaymentState(UUID id, String rail, long version) {}
+
+    private record ReplayCandidate(UUID id, String rail, long version, String status) {}
 
     private record Counts(long throughput, long succeeded, long processing, long parked) {}
 }

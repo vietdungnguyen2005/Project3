@@ -12,6 +12,24 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
+    @ExceptionHandler(dev.vpulse.payment.PaymentReconciliationRequiredException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    Map<String, String> reconciliationRequired(dev.vpulse.payment.PaymentReconciliationRequiredException exception) {
+        return error("PAYMENT_RECONCILIATION_REQUIRED", exception.getMessage());
+    }
+
+    @ExceptionHandler(dev.vpulse.payment.InvalidPaymentRequestException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    Map<String, String> invalidPayment(dev.vpulse.payment.InvalidPaymentRequestException exception) {
+        return error("INVALID_REQUEST", exception.getMessage());
+    }
+
+    @ExceptionHandler(dev.vpulse.payment.PaymentIdempotencyConflictException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    Map<String, String> paymentIdentityConflict(dev.vpulse.payment.PaymentIdempotencyConflictException exception) {
+        return error("IDEMPOTENCY_CONFLICT", exception.getMessage());
+    }
+
     @ExceptionHandler(PaymentProcessingException.class)
     @ResponseStatus(HttpStatus.CONFLICT)
     Map<String, String> paymentFailure(PaymentProcessingException exception) {

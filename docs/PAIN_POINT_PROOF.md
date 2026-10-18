@@ -1,5 +1,9 @@
 # Pain-point evidence: payment rail failure containment
 
+## Local remediation supersedes the historical timeout/replay example
+
+The deployment links and original scenarios below describe an earlier revision, not the current unpushed working tree. A timeout is now parked and blind replay is refused with 409 PAYMENT_RECONCILIATION_REQUIRED. Only explicit simulator rejection or circuit/bulkhead prevention can permit replay. Integration regressions are `aTimedOutInstructionCannotBeBlindlyAuthorizedAgain`, `parksADefinitivelyRejectedPaymentThenAllowsAnAuthorizedReplay`, and `replayRechecksPermissionAfterWaitingForTheInstructionLock`. See [current local evidence](evidence/remediation-2026-10-18.md). This is not proof of provider deduplication or settlement reconciliation.
+
 Deployment artifacts: [persistent free-tier proof](evidence/live-deployment.md), [short-lived AWS proof](evidence/aws-deployment.md), and [machine-readable AWS verification](evidence/aws-verification.json).
 
 ## Problem
