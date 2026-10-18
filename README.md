@@ -1,5 +1,9 @@
 # V-Pulse
 
+### Dependency audit policy (2026-10-18)
+
+Run `npm run audit:dependencies`. Runtime dependencies retain a strict high/critical audit. The full audit uses `audit-ci.json` with one user-approved, exact advisory-and-lint-path exception for GHSA-vfj7-8cjw-p6xm (unpatched braces stack exhaustion), expiring at 00:00 Asia/Bangkok on 2026-11-18. This is accepted risk, not a vulnerability fix or a zero-findings claim. Lint only trusted repository configuration; do not feed untrusted root-directory glob patterns into the lint tool. All other high/critical findings and audit-service failures still block CI. Remove the exception when upstream is patched; do not renew automatically.
+
 Local replay safety update (2026-10-18): V4 defaults replay permission to false, including historical rows. TIMEOUT, unknown and interrupted outcomes return 409 PAYMENT_RECONCILIATION_REQUIRED, even after rail recovery. Only explicitly rejected/prevented simulator calls can permit replay. Provider reconciliation is still pending; leave unknown instructions parked. Rollout below also requires V4 and stopping old backend writers that could bypass the guard. See the latest local remediation evidence before interpreting historical deployment results.
 
 V-Pulse is a payment-reliability control plane built as portfolio evidence for backend, cloud-oriented, and full-stack roles. It demonstrates how a team can contain an unhealthy downstream payment rail, park uncertain work, and recover it through an explicit audited replay instead of retrying blindly.

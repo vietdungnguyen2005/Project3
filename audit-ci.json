@@ -1,0 +1,16 @@
+{
+  "$schema": "https://github.com/IBM/audit-ci/raw/main/docs/schema.json",
+  "high": true,
+  "package-manager": "npm",
+  "pass-enoaudit": false,
+  "show-found": true,
+  "allowlist": [
+    {
+      "GHSA-vfj7-8cjw-p6xm|@next/eslint-plugin-next>fast-glob>micromatch>braces": {
+        "active": true,
+        "expiry": "2026-11-18T00:00:00+07:00",
+        "notes": "User-approved 2026-10-18: unpatched braces <=3.0.3 stack-exhaustion risk in the Next.js lint root-directory glob resolver only. Lint trusted repository configuration only; do not accept untrusted patterns. Runtime audit remains strict. Remove when upstream fixes this chain; do not renew automatically."
+      }
+    }
+  ]
+}
