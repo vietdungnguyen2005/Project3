@@ -1,29 +1,30 @@
-# Game-day postmortem — CARD timeout
+# Simulated incident review — timeout is not replay permission
 
-> This is a reproducible local game-day artifact, not a real customer incident.
+> Documentation correction, 2026-10-24. This is a local simulator/test case, not a real customer incident or a newly executed game-day.
 
-## Summary
+## Correction to the earlier narrative
 
-The CARD demo rail was switched to `TIMEOUT`. The 250 ms deadline expired, V-Pulse persisted the failed attempt, and the instruction entered the recovery queue. After the rail returned to `NORMAL`, one authorized replay produced a second `AUTHORIZED` attempt and the instruction became `SUCCEEDED`.
+An earlier version described CARD TIMEOUT → NORMAL → successful replay. That example is obsolete and unsafe under the current policy. Restoring a rail does not establish whether a timed-out operation executed. Current behavior is TIMEOUT → PARKED → replay 409 PAYMENT_RECONCILIATION_REQUIRED, without another gateway call.
 
-## Timeline
+## Test-backed timeline
 
-- T+00:00 — Operator injects CARD `TIMEOUT` through the BFF.
-- T+00:01 — Controlled payment enters `PROCESSING`.
-- T+00:01.25 — Deadline expires; attempt is recorded as `TIMEOUT`; instruction is parked.
-- T+00:02 — SLO panel and parking depth show the degradation.
-- T+00:04 — Operator restores `NORMAL` and verifies circuit state.
-- T+00:05 — Operator replays the parked instruction; authorization succeeds.
+Logical sequence, not measured elapsed time:
 
-## What worked
+1. Configure CARD TIMEOUT and create a synthetic instruction.
+2. The simulated response wait expires; TIMEOUT and PARKED are recorded with replay permission false.
+3. Restore NORMAL and request replay as an authorized operator.
+4. The backend refuses replay; the instruction remains PARKED, replay count stays zero and gateway call count is unchanged.
 
-- The service did not hold a database transaction during the downstream wait.
-- No recursive retry amplified the injected outage.
-- Attempt history preserved the timeout and recovery actions.
-- The BFF kept both trust credentials out of browser requests.
+Proof: `aTimedOutInstructionCannotBeBlindlyAuthorizedAgain` in [integration tests](../backend/src/test/java/dev/vpulse/PaymentReliabilityIntegrationTest.java).
 
-## Follow-up demonstrated in code
+A separate test, `parksADefinitivelyRejectedPaymentThenAllowsAnAuthorizedReplay`, proves the REJECT → NORMAL → controlled replay path under this simulator's no-execution semantics. It is not timeout reconciliation.
 
-- Stalled `PROCESSING` recovery protects the crash window.
-- Redis budget uses one atomic script rather than separate increment/expiry commands.
-- Testcontainers makes the recovery scenario repeatable in CI.
+## Established controls
+
+Local create identity avoids another instruction/gateway call for the same merchant operation. Replay locks the instruction and rereads permission. Interrupted recovery revokes permission; version fencing prevents late finalization from overwriting recovery. Session/CSRF/trust controls protect mutations.
+
+## Limits
+
+There is no independent provider ledger, stable external reference, outcome lookup or evidence-backed resolution workflow. A local timeout does not prove an accepted-but-response-lost authorization. No real process-kill reconciliation timeline, production MTTR, provider deduplication or exactly-once settlement is claimed.
+
+See the [scenario report](fde/incident-report.md), [future contract](fde/payment-reconciliation-contract.md) and [actual acceptance evidence](fde/acceptance-tests.md). Unknown instructions remain parked until a trustworthy resolution path exists.

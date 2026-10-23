@@ -1,5 +1,9 @@
 # Architecture decisions
 
+## Documentation-only handoff — 2026-10-24
+
+The [incident brief](fde/customer-incident-brief.md) maps source/gaps; [reconciliation contract](fde/payment-reconciliation-contract.md) separates current behavior from future design. No provider ledger, lookup API, state transition, migration or UI feature was added. See [test evidence](fde/acceptance-tests.md) before making capability claims.
+
 ## Local remediation update — 2026-10-18
 
 V4 adds explicit replay permission, default false even for historical rows. Only explicit simulator rejection or calls prevented by circuit/bulkhead grant permission. Replay first locks the instruction, then reads permission in a fresh READ COMMITTED statement. A joined snapshot read before waiting on the lock can incorrectly retain an earlier attempt's permission. Claim consumes permission atomically; interrupted-work recovery revokes it. Unknown outcomes return 409 PAYMENT_RECONCILIATION_REQUIRED without calling the rail. Provider lookup/manual reconciliation is not implemented; leave unknown instructions parked.

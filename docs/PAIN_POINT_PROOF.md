@@ -2,6 +2,8 @@
 
 ## Local remediation supersedes the historical timeout/replay example
 
+Documentation review, 2026-10-24: the [current-state/gap report](fde/customer-incident-brief.md), [decision matrix](fde/recovery-decision-matrix.md) and [acceptance boundaries](fde/acceptance-tests.md) distinguish current safeguards from **unimplemented** provider reconciliation. No application code or provider evidence is added.
+
 The deployment links and original scenarios below describe an earlier revision, not the current unpushed working tree. A timeout is now parked and blind replay is refused with 409 PAYMENT_RECONCILIATION_REQUIRED. Only explicit simulator rejection or circuit/bulkhead prevention can permit replay. Integration regressions are `aTimedOutInstructionCannotBeBlindlyAuthorizedAgain`, `parksADefinitivelyRejectedPaymentThenAllowsAnAuthorizedReplay`, and `replayRechecksPermissionAfterWaitingForTheInstructionLock`. See [current local evidence](evidence/remediation-2026-10-18.md). This is not proof of provider deduplication or settlement reconciliation.
 
 Deployment artifacts: [persistent free-tier proof](evidence/live-deployment.md), [short-lived AWS proof](evidence/aws-deployment.md), and [machine-readable AWS verification](evidence/aws-verification.json).
@@ -14,7 +16,7 @@ Japanese payment and enterprise systems must integrate with slow or failure-pron
 
 | Failure mode | Preventive control | Recovery control | Evidence |
 |---|---|---|---|
-| Slow rail | 250 ms deadline on a virtual-thread task | Persist `TIMEOUT` attempt and park instruction | `parksATimedOutPaymentThenAllowsAnAuthorizedReplay` |
+| Slow rail | 250 ms response wait on a virtual-thread task | Persist TIMEOUT and park; refuse blind replay after NORMAL | `aTimedOutInstructionCannotBeBlindlyAuthorizedAgain` |
 | Repeated rejection | Per-rail circuit breaker (4-call window, 50% threshold) | Operator changes fault profile; circuit reset is explicit | `RailGateway`, rail state API, browser test |
 | Concurrent overload | Per-rail eight-permit bulkhead | `BULKHEAD_FULL` is parked, not retried recursively | `RailGateway.authorize` |
 | Duplicate replay | Atomic `PARKED → PROCESSING` SQL claim | Only one caller can acquire the instruction | `PaymentService.replay` |
@@ -24,7 +26,7 @@ Japanese payment and enterprise systems must integrate with slow or failure-pron
 
 ## Reproducible proof
 
-`backend/src/test/java/dev/vpulse/PaymentReliabilityIntegrationTest.java` starts real PostgreSQL 17.6 and Redis 8.2 containers. It proves unauthorized access is rejected, a healthy payment succeeds, a timed-out payment is parked and later replayed, and the Redis budget returns HTTP 429.
+`backend/src/test/java/dev/vpulse/PaymentReliabilityIntegrationTest.java` starts real PostgreSQL 17.6 and Redis 8.2 containers. It proves unauthorized access is rejected, a healthy payment succeeds, a timed-out payment stays parked with replay refused, a separate definitive simulator rejection supports controlled replay, and the Redis budget returns HTTP 429. It does not perform provider lookup or prove external settlement.
 
 ```bash
 cd backend
