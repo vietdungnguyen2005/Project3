@@ -1,22 +1,22 @@
 # Architecture decisions
 
-## Documentation-only handoff — 2026-10-24
+## Reconciliation implementation — 2026-10-24
 
-The [incident brief](fde/customer-incident-brief.md) maps source/gaps; [reconciliation contract](fde/payment-reconciliation-contract.md) separates current behavior from future design. No provider ledger, lookup API, state transition, migration or UI feature was added. See [test evidence](fde/acceptance-tests.md) before making capability claims.
+The [incident brief](fde/customer-incident-brief.md) maps the baseline gaps and delivered feature. The [contract](fde/payment-reconciliation-contract.md) defines stable provider identity, independent simulator commit, read-only lookup and separate explicit confirmation. Additive V5 and the investigation drawer are implemented locally, not deployed. See [test evidence](fde/acceptance-tests.md) before making capability claims.
 
 ## Local remediation update — 2026-10-18
 
-V4 adds explicit replay permission, default false even for historical rows. Only explicit simulator rejection or calls prevented by circuit/bulkhead grant permission. Replay first locks the instruction, then reads permission in a fresh READ COMMITTED statement. A joined snapshot read before waiting on the lock can incorrectly retain an earlier attempt's permission. Claim consumes permission atomically; interrupted-work recovery revokes it. Unknown outcomes return 409 PAYMENT_RECONCILIATION_REQUIRED without calling the rail. Provider lookup/manual reconciliation is not implemented; leave unknown instructions parked.
+V4 adds explicit replay permission, default false even for historical rows. Only final/no-execution simulator rejection or calls prevented by circuit/bulkhead grant permission. Replay first locks the instruction, then reads permission in a fresh READ COMMITTED statement. A joined snapshot read before waiting can incorrectly retain old permission. Claim consumes permission atomically; interrupted-work recovery revokes it. V5 lookup also revokes permission while investigating; current verified rejection requires separate confirmation to grant it again. Unknown/unavailable/NOT_FOUND remains blocked; verified success can be explicitly resolved locally without another authorization.
 
-Rollout requires pausing old writers, backup, additive V3/V4 migrations, then matching backend/BFF/client. Old writers must not bypass the guard. These are local changes, not deployment evidence.
+Rollout requires pausing old writers, backup, additive migrations through V5, then matching backend/BFF/client. Old writers must not bypass permission or provider-reference semantics. These are local changes, not deployment evidence.
 
 ## ADR-001 — Park uncertain work instead of automatic retry
 
-Payment authorization can have an ambiguous outcome after a timeout. V-Pulse records an attempt and moves the instruction to `PARKED`. Parking makes uncertainty visible; it does **not** prove it is safe to authorize again. The current replay action exercises a simulator. Stable provider references, provider-side deduplication/status lookup and reconciliation remain a deployment gate before claiming recovery without duplicate financial effects.
+Payment authorization can have an ambiguous outcome after a timeout. V-Pulse records an attempt and moves the instruction to `PARKED`. Parking makes uncertainty visible; it does **not** prove it is safe to authorize again. Simulated provider lookup can now establish a prior authorization using the original persisted reference. It never submits authorization; resolution is a separate audited decision. Real provider identity/finality and financial effects remain unproven.
 
 ## ADR-002 — Short transactions around external I/O
 
-The service commits an instruction/create identity atomically, releases that transaction, calls the downstream adapter, then finalizes in a new transaction. The provider call itself holds no JDBC transaction. Configuration/quota/DB waiting still need additional bounds; this is not a blanket guarantee against pool exhaustion. A reconciler currently converts stale `PROCESSING` records to `PARKED` after two minutes, not by a full claim/lease protocol yet.
+The service commits instruction/create identity atomically, releases that business transaction, calls the adapter, then finalizes in a new transaction. Provider I/O holds no payment business transaction/row lock. The simulator itself uses a short independently committed ledger transaction; its read-only lookup transaction may contain the configured demo delay. Configuration/quota/DB waiting still need additional bounds; this is not a blanket guarantee against pool exhaustion. Stale PROCESSING recovery remains a two-minute scan; the new 30-second lease applies to reconciliation claims, not all payment workers.
 
 ## Merchant-scoped create identity (local remediation)
 
@@ -43,9 +43,14 @@ stateDiagram-v2
   PROCESSING --> PARKED: timeout / reject / open circuit / bulkhead full
   PROCESSING --> PARKED: stalled-work reconciler
   PARKED --> PROCESSING: authorized operator replay
+  PARKED --> SUCCEEDED: current verified provider evidence + explicit confirmation / no authorization
 ```
 
 Known production extensions are intentionally outside this portfolio scope: real rail adapters, merchant identity/authentication, multi-region consensus, and a durable message broker. They are not silently represented by mocks.
+
+## ADR-005 — Lookup is not authorization
+
+V5 adds stable per-attempt provider references, an independently committed simulator ledger and durable investigation evidence. A bounded lookup commits an expiring claim before read-only provider I/O, releases business locks, then records the observation under version/reference/lease fencing. Only a separate explicit operator confirmation can resolve verified success locally or grant controlled replay for a final/no-execution rejection. Neither lookup nor confirmation calls authorization. Unknown, unavailable, NOT_FOUND and historical missing-reference cases remain fail-closed. See the [transaction contract](fde/payment-reconciliation-contract.md) and [executed evidence](fde/acceptance-tests.md). The same-database simulator does not prove independent provider availability or settlement.
 
 ## Adapter compatibility note
 

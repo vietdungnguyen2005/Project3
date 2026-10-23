@@ -1,35 +1,43 @@
-# Honest demo and English incident walkthrough
+# Customer demo and English incident walkthrough
 
-## Demonstrate the current system
+## Reproduce locally
 
-Use a disposable local environment and synthetic data. The existing runner is `tools/verify-operator-session.ps1` after backend packaging/frontend build; it owns its test PostgreSQL/Redis and temporary credentials. This documentation task did not rerun it or create screenshots.
+After backend packaging and frontend production build, run:
 
-1. Show dashboard health and local attempt details. Explain that the rail is a delay/rejection simulator, not an external provider.
-2. Demonstrate healthy authorization and merchant-key deduplication: repeated create must not call the gateway again.
-3. Inject TIMEOUT, show PARKED, restore NORMAL and demonstrate replay 409. Explain why safe refusal is the correct outcome.
-4. Use a separate synthetic REJECT operation, restore NORMAL and request authorized replay. Explain its no-execution contract and atomic permission consumption.
-5. Explain version-fenced stale-work recovery using the integration tests; do not call it a reconciliation process-crash game-day.
-6. Show the [future contract](payment-reconciliation-contract.md) and its missing provider reference, ledger, lookup evidence and confirmation workflow. Do not manufacture a successful reconciliation screenshot.
+```powershell
+.\tools\verify-operator-session.ps1 -Reconciliation
+```
 
-Existing reproduction commands: `backend/mvnw.cmd verify`, `npm run verify`, `npm run test:e2e`. Fixture browsers/local-state tests do not prove external financial effects. [Acceptance evidence](acceptance-tests.md) records what actually ran for this task.
+The runner creates disposable PostgreSQL/Redis, fake local credentials, Java/Next servers, then verifies existing session/create/replay behavior and game-day A–E. It kills **only its owned Java process**, restarts against the same disposable DB and cleans its process trees/containers. It does not read payment credentials or deploy.
+
+## Five-minute operator demo
+
+1. Set CARD ACCEPT_LOST and create synthetic traffic. Show local PARKED/TIMEOUT, distinct original reference and the independently committed AUTHORIZED provider ledger.
+2. Open investigation. Explain lookup is read-only; choose Look up original operation. Review OBSERVED / VERIFIED_SUCCESS, evidence code, actor and request ID. The payment is still PARKED.
+3. Check confirmation and choose Confirm verified success. Show local SUCCEEDED / ALREADY_RECONCILED and the audit. Repeated lookup/confirmation returns the same evidence; provider invocation count stays one.
+4. Use a separate REJECT instruction. Lookup revokes prior replay permission. Confirm the final rejection to grant permission, then explicitly replay under NORMAL. Explain the second provider invocation is intentional and safe only under the simulator's documented no-execution rejection contract.
+5. Show UNKNOWN, unavailable and NOT_FOUND examples. They remain parked; unsafe replay/resolve returns 409. A healthy rail does not change the past.
+6. Show concurrent tests and [crash evidence](incident-report.md): a real Java kill while lookup was IN_PROGRESS, retained claim after restart, interrupted old evidence and read-only recovery. Lease expiry was accelerated only in the disposable DB.
+
+Screenshots and machine-readable results: [acceptance](acceptance-tests.md). Do not present the screenshots as a live deployed feature.
 
 ## 90-second English walkthrough
 
-> V-Pulse is a simulated payment-reliability portfolio project. The operational problem is uncertainty: a timeout does not establish whether a provider executed an authorization, so blindly retrying could duplicate a financial operation.
+> V-Pulse is a simulated payment-reliability project. The problem is an uncertain authorization: a provider may accept an operation even when the application receives a timeout. Blindly retrying could duplicate an external operation.
 >
-> The application separates local create identity from execution. Merchant-scoped keys and payload hashes prevent an identical create request from generating another local instruction or gateway call. Uncertain attempts are parked instead of recursively retried.
+> I separated authorization, lookup and operator resolution. Each authorization claim stores a stable reference before I/O. The simulated provider commits an independent ledger transaction, so an accepted-but-lost response can be investigated even if local finalization fails.
 >
-> Replay permission is explicit and fail-closed. Timeouts, unknown outcomes and interrupted instructions remain blocked even when the rail becomes healthy. For a documented simulator rejection or a prevented call, an authorized operator can request replay. The backend locks the instruction, rereads permission and consumes it atomically.
+> An operator first performs read-only lookup. The application persists evidence with the original reference, version and actor, but does not mark success or authorize again. Explicit confirmation resolves verified success locally. Final rejection can grant controlled replay permission only because the simulator guarantees no execution; replay remains a separate action.
 >
-> Short database transactions and a version check prevent a late gateway response from overwriting a recovered instruction. PostgreSQL and Redis integration tests cover these local safeguards and operator session controls.
+> Unknown, unavailable and not-found results stay parked. PostgreSQL instruction locks, version checks and atomic permission consumption prevent stale or concurrent decisions. A durable expiring lookup claim supports safe investigation after process interruption.
 >
-> The important limitation is that the current simulator has no independent provider ledger or lookup. I would not claim accepted-but-response-lost reconciliation or exactly-once settlement. The documentation defines the future contract: stable provider identity, bounded lookup, durable evidence, explicit confirmation and stale-decision fencing. Until that is implemented and tested, uncertain payments remain parked.
+> I verified these behaviors with PostgreSQL/Redis integration tests, real browser confirmation and a local process-kill game-day. The simulator shares the application's database availability domain, so I would not claim real provider integration, production incident experience or exactly-once settlement.
 
 ## Two accurate CV bullets
 
-Only use wording that reflects your actual contribution and understanding; repository capability is not personal production experience.
+Use only if you understand and can explain the implementation; project capability is not personal production experience.
 
-- Implemented local payment-recovery safeguards in a Java/Spring Boot simulation using merchant-scoped idempotency, PostgreSQL atomic replay claims and version-fenced finalization; kept timeout/unknown outcomes non-replayable.
-- Documented incident triage, recovery decisions and provider-reconciliation design boundaries, backed by existing PostgreSQL/Redis integration coverage for permission races, interrupted processing and session/CSRF protections.
+- Built a Java/Spring Boot simulated payment investigation flow with stable provider references, durable lookup evidence and explicit operator confirmation; resolved accepted-but-response-lost authorizations without a second provider call.
+- Verified fail-closed unknown outcomes, concurrent recovery decisions and process-interruption recovery using PostgreSQL/Redis integration tests and a reproducible local browser game-day, with audited actions and low-cardinality metrics.
 
-If you authored only documentation, use “analyzed/documented” rather than “implemented” for the first bullet. Do not claim real provider integration, customer incidents or provider-confirmed settlement/recovery.
+If your contribution was analysis/documentation rather than implementation, replace “Built/Verified” with the work you actually performed. No real charges, customer engagement or production SRE claims.

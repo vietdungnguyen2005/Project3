@@ -14,16 +14,19 @@ public class PaymentService {
     private final RailGateway gateway;
     private final RedisMerchantRateLimiter rateLimiter;
     private final TransactionTemplate transactions;
+    private final io.micrometer.core.instrument.Counter unsafeReplayRejected;
 
     public PaymentService(
             JdbcClient jdbc,
             RailGateway gateway,
             RedisMerchantRateLimiter rateLimiter,
-            PlatformTransactionManager transactionManager) {
+            PlatformTransactionManager transactionManager,
+            io.micrometer.core.instrument.MeterRegistry metrics) {
         this.jdbc = jdbc;
         this.gateway = gateway;
         this.rateLimiter = rateLimiter;
         this.transactions = new TransactionTemplate(transactionManager);
+        this.unsafeReplayRejected = metrics.counter("vpulse.replay.unsafe.rejected");
     }
 
     public PaymentWindow list(int offset, int limit, String status) {
@@ -106,8 +109,9 @@ public class PaymentService {
             String number =
                     "VP-" + id.toString().replace("-", "").substring(0, 12).toUpperCase(java.util.Locale.ROOT);
             jdbc.sql(
-                            "INSERT INTO payment_instruction (id, payment_number, merchant_id, rail, amount_minor, currency, status) VALUES (:id,:number,:merchant,:rail,:amount,:currency,'PROCESSING')")
+                            "INSERT INTO payment_instruction (id, payment_number, merchant_id, rail, amount_minor, currency, status,provider_reference) VALUES (:id,:number,:merchant,:rail,:amount,:currency,'PROCESSING',:reference)")
                     .param("id", id)
+                    .param("reference", providerReference(id, 0))
                     .param("number", number)
                     .param("merchant", merchant)
                     .param("rail", request.rail())
@@ -168,11 +172,14 @@ public class PaymentService {
                     .query(Boolean.class)
                     .optional()
                     .orElse(false);
-            if (!permitted) throw new PaymentReconciliationRequiredException();
+            if (!permitted) {
+                unsafeReplayRejected.increment();
+                throw new PaymentReconciliationRequiredException();
+            }
             var claimed = jdbc.sql(
                             """
                         UPDATE payment_instruction
-                        SET status='PROCESSING', version=version+1, updated_at=NOW()
+                        SET status='PROCESSING', provider_reference='vpulse:'||id||':'||(version+1), version=version+1, updated_at=NOW()
                         WHERE payment_number=:number AND status='PARKED'
                         RETURNING id, rail, version
                         """)
@@ -191,8 +198,36 @@ public class PaymentService {
         return detail(paymentNumber);
     }
 
+    @Transactional
+    public LookupProfileRequest configureLookup(String rail, LookupProfileRequest request, String actor) {
+        int changed = jdbc.sql("UPDATE provider_lookup_configuration SET mode=:mode,delay_ms=:delay WHERE rail=:rail")
+                .param("mode", request.mode())
+                .param("delay", request.delayMs())
+                .param("rail", rail)
+                .update();
+        if (changed != 1) throw new InvalidPaymentRequestException("Unknown simulator rail");
+        jdbc.sql(
+                        "INSERT INTO audit_event(id,actor,action,aggregate_id,details) VALUES(:id,:actor,'LOOKUP_PROFILE_CHANGED',:rail,jsonb_build_object('mode',CAST(:mode AS text),'delayMs',CAST(:delay AS integer)))")
+                .param("id", UUID.randomUUID())
+                .param("actor", actor)
+                .param("rail", rail)
+                .param("mode", request.mode())
+                .param("delay", request.delayMs())
+                .update();
+        return request;
+    }
+
     private void process(UUID id, String number, String rail, String actor, long claimedVersion) {
-        var result = gateway.authorize(rail);
+        var operation = jdbc.sql("SELECT merchant_id,amount_minor,currency FROM payment_instruction WHERE id=:id")
+                .param("id", id)
+                .query((rs, row) -> new ProviderOutcomeLookup.Operation(
+                        providerReference(id, claimedVersion),
+                        rail,
+                        rs.getString("merchant_id"),
+                        rs.getLong("amount_minor"),
+                        rs.getString("currency")))
+                .single();
+        var result = gateway.authorize(rail, operation);
         transactions.executeWithoutResult(ignored -> {
             String status = result.success() ? "SUCCEEDED" : "PARKED";
             int finalized = jdbc.sql(
@@ -208,8 +243,9 @@ public class PaymentService {
                     .query(Integer.class)
                     .single();
             jdbc.sql(
-                            "INSERT INTO payment_attempt (id,payment_id,attempt_number,outcome,latency_ms,detail) VALUES (:attemptId,:id,:number,:outcome,:latency,:detail)")
+                            "INSERT INTO payment_attempt (id,payment_id,attempt_number,outcome,latency_ms,detail,provider_reference) VALUES (:attemptId,:id,:number,:outcome,:latency,:detail,:reference)")
                     .param("attemptId", UUID.randomUUID())
+                    .param("reference", operation.reference())
                     .param("id", id)
                     .param("number", attempt)
                     .param("outcome", result.outcome())
@@ -309,4 +345,8 @@ public class PaymentService {
     private record ReplayCandidate(UUID id, String rail, long version, String status) {}
 
     private record Counts(long throughput, long succeeded, long processing, long parked) {}
+
+    private static String providerReference(UUID id, long version) {
+        return "vpulse:" + id + ":" + version;
+    }
 }

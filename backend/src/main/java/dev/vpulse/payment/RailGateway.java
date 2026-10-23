@@ -20,12 +20,14 @@ public class RailGateway {
     private static final int TIMEOUT_MS = 250;
     private final JdbcClient jdbc;
     private final MeterRegistry metrics;
+    private final SimulatedPaymentProvider provider;
     private final CircuitBreakerRegistry circuits;
     private final Map<String, Semaphore> bulkheads = new ConcurrentHashMap<>();
 
-    public RailGateway(JdbcClient jdbc, MeterRegistry metrics) {
+    public RailGateway(JdbcClient jdbc, MeterRegistry metrics, SimulatedPaymentProvider provider) {
         this.jdbc = jdbc;
         this.metrics = metrics;
+        this.provider = provider;
         var config = CircuitBreakerConfig.custom()
                 .failureRateThreshold(50)
                 .slidingWindowSize(4)
@@ -36,7 +38,7 @@ public class RailGateway {
         this.circuits = CircuitBreakerRegistry.of(config);
     }
 
-    public RailResult authorize(String rail) {
+    public RailResult authorize(String rail, ProviderOutcomeLookup.Operation operation) {
         var bulkhead = bulkheads.computeIfAbsent(rail, ignored -> new Semaphore(8));
         if (!bulkhead.tryAcquire()) {
             metrics.counter("vpulse.rail.requests", "rail", rail, "outcome", "bulkhead_rejected")
@@ -48,7 +50,7 @@ public class RailGateway {
         try {
             circuit.acquirePermission();
             try {
-                executeWithTimeout(rail);
+                executeWithTimeout(rail, operation);
                 int latency = elapsed(started);
                 circuit.onSuccess(latency, TimeUnit.MILLISECONDS);
                 metrics.counter("vpulse.rail.requests", "rail", rail, "outcome", "success")
@@ -74,7 +76,7 @@ public class RailGateway {
         }
     }
 
-    private void executeWithTimeout(String rail) throws Exception {
+    private void executeWithTimeout(String rail, ProviderOutcomeLookup.Operation operation) throws Exception {
         var config = jdbc.sql("SELECT failure_mode, simulated_delay_ms FROM rail_configuration WHERE rail = :rail")
                 .param("rail", rail)
                 .query(RailConfig.class)
@@ -83,9 +85,11 @@ public class RailGateway {
         try {
             var future = executor.submit(() -> {
                 Thread.sleep(config.simulatedDelayMs());
-                if ("REJECT".equals(config.failureMode()))
-                    throw new PaymentProcessingException("Rail rejected request");
-                if ("TIMEOUT".equals(config.failureMode())) Thread.sleep(TIMEOUT_MS * 2L);
+                String decision = provider.authorize(operation, config.failureMode());
+                if ("REJECTED".equals(decision)) throw new PaymentProcessingException("Rail rejected request");
+                if ("INCOMPLETE".equals(decision)
+                        || "TIMEOUT".equals(config.failureMode())
+                        || "ACCEPT_LOST".equals(config.failureMode())) Thread.sleep(TIMEOUT_MS * 2L);
                 return null;
             });
             try {

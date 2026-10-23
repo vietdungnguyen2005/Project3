@@ -61,6 +61,8 @@ public class SecurityConfiguration {
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/api/auth/**")
                         .permitAll()
+                        .requestMatchers("/api/payments/*/investigation")
+                        .hasRole("OPERATOR")
                         .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/**")
                         .hasRole("OPERATOR")
                         .requestMatchers("/api/catalog/**", "/actuator/health/**")

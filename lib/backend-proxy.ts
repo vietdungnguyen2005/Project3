@@ -4,6 +4,7 @@ const readTargets = [
   /^reliability\/overview$/,
   /^payments$/,
   /^payments\/[A-Z0-9-]+$/,
+  /^payments\/[A-Z0-9-]+\/investigation$/,
   /^parking$/,
   /^rails$/,
   /^auth\/session$/,
@@ -11,11 +12,15 @@ const readTargets = [
 const writeTargets = [
   /^payments$/,
   /^parking\/[A-Z0-9-]+\/replay$/,
+  /^payments\/[A-Z0-9-]+\/reconciliation$/,
+  /^payments\/[A-Z0-9-]+\/reconciliation\/[0-9a-fA-F-]{36}\/resolve$/,
+  /^demo\/rails\/(?:ZENGIN|CARD|SWIFT)\/lookup-profile$/,
   /^demo\/rails\/(?:ZENGIN|CARD|SWIFT)\/fault-profile$/,
   /^auth\/(?:login|logout)$/,
 ];
 
-const operationsTargets = [/^parking\/.+\/replay$/, /^demo\/rails\/.+\/fault-profile$/];
+const operationsTargets = [/^parking\/.+\/replay$/, /^demo\/rails\/.+\/(?:fault-profile|lookup-profile)$/,
+  /^payments\/[A-Z0-9-]+\/(?:investigation|reconciliation(?:\/[0-9a-fA-F-]{36}\/resolve)?)$/];
 
 function jsonError(code: string, message: string, status: number) {
   return Response.json({ code, message }, { status });

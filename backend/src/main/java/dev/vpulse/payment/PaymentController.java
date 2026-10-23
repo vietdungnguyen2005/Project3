@@ -80,4 +80,14 @@ public class PaymentController {
         opsAuthorizer.requireAuthorized(opsSecret);
         return paymentService.configureRail(rail, request);
     }
+
+    @PostMapping("/demo/rails/{rail}/lookup-profile")
+    LookupProfileRequest configureLookup(
+            @PathVariable String rail,
+            @Valid @RequestBody LookupProfileRequest request,
+            @RequestHeader("X-V-Pulse-Ops-Secret") String opsSecret,
+            java.security.Principal actor) {
+        opsAuthorizer.requireAuthorized(opsSecret);
+        return paymentService.configureLookup(rail, request, actor.getName());
+    }
 }

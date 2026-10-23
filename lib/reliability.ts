@@ -1,6 +1,6 @@
 export type PaymentStatus = "SUCCEEDED" | "PROCESSING" | "PARKED";
 export type RailName = "ZENGIN" | "CARD" | "SWIFT";
-export type FailureMode = "NORMAL" | "TIMEOUT" | "REJECT";
+export type FailureMode = "NORMAL" | "TIMEOUT" | "REJECT" | "ACCEPT_LOST";
 
 export type Payment = {
   paymentNumber: string;

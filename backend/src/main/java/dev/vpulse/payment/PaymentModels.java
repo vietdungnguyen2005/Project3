@@ -50,4 +50,8 @@ record ReliabilityOverview(
         List<RailView> rails) {}
 
 record FaultProfileRequest(
-        @NotBlank @Pattern(regexp = "NORMAL|TIMEOUT|REJECT") String failureMode, @Min(0) @Max(5000) int delayMs) {}
+        @NotBlank @Pattern(regexp = "NORMAL|TIMEOUT|REJECT|ACCEPT_LOST") String failureMode,
+        @Min(0) @Max(5000) int delayMs) {}
+
+record LookupProfileRequest(
+        @NotBlank @Pattern(regexp = "NORMAL|UNAVAILABLE|UNKNOWN") String mode, @Min(0) @Max(5000) int delayMs) {}

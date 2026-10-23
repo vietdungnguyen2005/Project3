@@ -116,7 +116,7 @@ Nếu được hỏi về replay thành công, xem `parksADefinitivelyRejectedPa
 
 ## 5. Câu hỏi tình huống: trả lời theo cách đơn giản
 
-**Operator nói rail đã khỏe, sao vẫn không replay được?** Giải thích rail hiện tại khỏe không xác nhận kết quả của attempt trước. Repo cố ý chặn instruction chưa rõ kết quả. Provider lookup/manual reconciliation workflow chưa được triển khai; để PARKED, không sửa SQL hoặc đổi create key để lách guard.
+**Operator nói rail đã khỏe, sao vẫn không replay được?** Rail hiện tại khỏe không xác nhận kết quả của attempt trước. Với reference gốc, operator có thể lookup provider mô phỏng để lưu bằng chứng; lookup không tự thanh toán hay đổi trạng thái. Xác nhận riêng mới ghi nhận thành công cục bộ hoặc cho phép replay khi rejection bảo đảm chưa thực hiện. Unknown/NOT_FOUND/unavailable vẫn PARKED; không sửa SQL hoặc đổi create key để lách guard. Chi tiết nâng cao nằm trong `docs/fde/`; mức Intern chỉ cần hiểu tách tra cứu khỏi thực hiện lại.
 
 **Frontend timeout sau POST thì làm gì?** Giữ key/payload, kiểm tra instruction và chỉ gửi lại cùng operation theo cơ chế đã có. Không suy ra browser timeout đã hủy transaction Java.
 
@@ -124,7 +124,7 @@ Nếu được hỏi về replay thành công, xem `parksADefinitivelyRejectedPa
 
 ## 6. Chỉ đọc khi được hỏi sâu
 
-- Local create identity và version guard không bảo đảm exactly-once settlement. Stable provider reference/dedup/lookup và accepted-but-response-lost reconciliation chưa triển khai.
+- Local create identity và version guard không bảo đảm exactly-once settlement. Repo hiện có stable reference, ledger/lookup provider mô phỏng và accepted-but-response-lost reconciliation; chưa có tích hợp provider thật. Ledger commit độc lập nhưng vẫn chung PostgreSQL, không chứng minh độ sẵn sàng hay settlement của hệ thống thanh toán thật.
 - Replay permission phải đọc sau khi khóa instruction để không dùng snapshot permission cũ sau lúc chờ lock; test race đã có. Không cần mở đầu bài giới thiệu bằng isolation-level internals.
 - Recovery theo tuổi row chưa phải lease protocol đầy đủ. `cancel(true)` chỉ yêu cầu interrupt task local, không hủy một giao dịch ngân hàng từ xa.
 - Circuit breaker và semaphore là per-instance, không tự chia sẻ state giữa ba replicas. Redis budget mới là shared theo key.

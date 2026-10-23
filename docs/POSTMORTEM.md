@@ -1,6 +1,6 @@
 # Simulated incident review — timeout is not replay permission
 
-> Documentation correction, 2026-10-24. This is a local simulator/test case, not a real customer incident or a newly executed game-day.
+> Updated 2026-10-24. This section retains the original fail-closed timeout regression; a separate newly executed **synthetic** reconciliation game-day is recorded below. Neither is a real customer incident.
 
 ## Correction to the earlier narrative
 
@@ -25,6 +25,6 @@ Local create identity avoids another instruction/gateway call for the same merch
 
 ## Limits
 
-There is no independent provider ledger, stable external reference, outcome lookup or evidence-backed resolution workflow. A local timeout does not prove an accepted-but-response-lost authorization. No real process-kill reconciliation timeline, production MTTR, provider deduplication or exactly-once settlement is claimed.
+The feature branch now adds a stable reference, independently committed simulator ledger, read-only lookup and separate evidence-backed confirmation. A local TIMEOUT alone still does not prove acceptance. The ledger shares application PostgreSQL availability; no real provider or settlement guarantees are claimed.
 
-See the [scenario report](fde/incident-report.md), [future contract](fde/payment-reconciliation-contract.md) and [actual acceptance evidence](fde/acceptance-tests.md). Unknown instructions remain parked until a trustworthy resolution path exists.
+See the [executed A–E scenario report](fde/incident-report.md), [implemented contract](fde/payment-reconciliation-contract.md) and [acceptance evidence](fde/acceptance-tests.md). Accepted-lost lookup/confirmation and real Java kill/restart recovery each retained one provider invocation. The crash test accelerated lease expiry in its disposable DB; it is not production MTTR. Unknown/unavailable/NOT_FOUND results still remain parked.

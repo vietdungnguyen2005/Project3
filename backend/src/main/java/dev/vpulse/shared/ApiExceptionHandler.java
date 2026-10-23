@@ -12,6 +12,17 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
+    @ExceptionHandler({
+        org.springframework.dao.DataAccessException.class,
+        org.springframework.transaction.TransactionException.class
+    })
+    @ResponseStatus(HttpStatus.SERVICE_UNAVAILABLE)
+    Map<String, String> databaseUnavailable() {
+        return error(
+                "DATABASE_UNAVAILABLE",
+                "Database work could not be confirmed. Refresh the original instruction and investigation before retrying; do not create a replacement payment.");
+    }
+
     @ExceptionHandler(dev.vpulse.payment.PaymentReconciliationRequiredException.class)
     @ResponseStatus(HttpStatus.CONFLICT)
     Map<String, String> reconciliationRequired(dev.vpulse.payment.PaymentReconciliationRequiredException exception) {

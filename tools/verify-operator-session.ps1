@@ -1,3 +1,4 @@
+param([switch]$Reconciliation)
 $ErrorActionPreference = 'Stop'
 $qaRoot = Split-Path $PSScriptRoot -Parent
 Set-Location -LiteralPath $qaRoot
@@ -11,6 +12,7 @@ $qaPostgres = "vpulse-auth-pg-$qaSuffix"
 $qaRedis = "vpulse-auth-redis-$qaSuffix"
 $qaBackend = $null
 $qaFrontend = $null
+$qaCrashRequest = $null
 
 function Wait-QaHttp([string]$Url, [System.Diagnostics.Process]$Process) {
     $watch = [System.Diagnostics.Stopwatch]::StartNew()
@@ -53,8 +55,33 @@ try {
     Wait-QaHttp 'http://127.0.0.1:13003/' $qaFrontend
     python tools/qa_operator_session.py
     if ($LASTEXITCODE -ne 0) { throw 'Operator browser verification failed' }
+    if ($Reconciliation) {
+        python tools/qa_reconciliation.py scenarios
+        if ($LASTEXITCODE -ne 0) { throw 'Reconciliation game-day A-D failed' }
+        python tools/qa_reconciliation.py prepare-crash
+        if ($LASTEXITCODE -ne 0) { throw 'Crash scenario preparation failed' }
+        $qaCrashState = Get-Content -LiteralPath (Join-Path $qaOutput 'reconciliation-crash.json') -Raw | ConvertFrom-Json
+        if ($qaCrashState.payment -notmatch '^VP-[A-Z0-9-]+$') { throw 'Invalid synthetic crash payment' }
+        $qaCrashRequest = Start-Process -FilePath 'python' -ArgumentList 'tools/qa_reconciliation.py','crash-request' -WorkingDirectory $qaRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $qaOutput 'crash-request.log') -RedirectStandardError (Join-Path $qaOutput 'crash-request-error.log')
+        $qaClaimSeen = $false
+        $qaClaimWatch = [System.Diagnostics.Stopwatch]::StartNew()
+        while ($qaClaimWatch.Elapsed.TotalSeconds -lt 15) {
+            $qaClaimState = docker exec $qaPostgres psql -U vpulse -d vpulse -At -c "SELECT r.state FROM payment_reconciliation r JOIN payment_instruction p ON p.id=r.payment_id WHERE p.payment_number='$($qaCrashState.payment)' ORDER BY r.created_at DESC LIMIT 1"
+            if ($qaClaimState -eq 'IN_PROGRESS') { $qaClaimSeen = $true; break }
+            Start-Sleep -Milliseconds 50
+        }
+        if (-not $qaClaimSeen) { throw 'No durable IN_PROGRESS claim observed; refusing to claim a crash test' }
+        taskkill /PID $qaBackend.Id /T /F | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw 'Owned Java process was not terminated' }
+        if (-not $qaCrashRequest.WaitForExit(20000)) { throw 'Crash request did not return' }
+        if ($qaCrashRequest.ExitCode -ne 0) { throw 'Crash request did not observe upstream failure' }
+        $qaBackend = Start-Process -FilePath 'java' -ArgumentList '-jar','backend/target/v-pulse-backend-0.1.0-SNAPSHOT.jar','--server.port=18083' -WorkingDirectory $qaRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $qaOutput 'backend-restart.log') -RedirectStandardError (Join-Path $qaOutput 'backend-restart-error.log')
+        Wait-QaHttp 'http://127.0.0.1:18083/actuator/health' $qaBackend
+        python tools/qa_reconciliation.py resume-crash
+        if ($LASTEXITCODE -ne 0) { throw 'Crash restart reconciliation failed' }
+    }
 } finally {
-    foreach ($qaProcess in @($qaFrontend, $qaBackend)) {
+    foreach ($qaProcess in @($qaFrontend, $qaBackend, $qaCrashRequest)) {
         if ($qaProcess -and -not $qaProcess.HasExited) {
             taskkill /PID $qaProcess.Id /T /F | Out-Null
         }

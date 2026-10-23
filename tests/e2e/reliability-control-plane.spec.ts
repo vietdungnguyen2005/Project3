@@ -18,6 +18,7 @@ async function mockControlPlane(page: Page, authenticated = true) {
     else if (path.endsWith("/reliability/overview")) body = { throughput: 1000, succeeded: 908, processing: 1, parked: 91, successRate: 90.8, oldestParkedSeconds: 660, rails };
     else if (path.endsWith("/payments")) body = { rows: [parked, succeeded], total: 1000, offset: 0, limit: 200 };
     else if (path.endsWith("/parking")) body = [parked];
+    else if (path.endsWith("/investigation")) body = { detail: { payment: parked, attempts: [], parkedReason: "TIMEOUT" }, providerReference: "vpulse:fixture:0", replayPermitted: false, nextAction: "RECONCILE_PROVIDER", evidence: [], audit: [] };
     else if (path.endsWith(parked.paymentNumber)) body = { payment: parked, parkedReason: "TIMEOUT", attempts: [{ attemptNumber: 1, outcome: "TIMEOUT", latencyMs: 251, detail: "Provider outcome unverified; reconciliation required before authorization", createdAt: parked.createdAt }] };
     await route.fulfill({ contentType: "application/json", body: JSON.stringify(body) });
   });
@@ -65,5 +66,7 @@ test("public readers can inspect payments but cannot use mutation controls", asy
   await expect(page.getByRole("heading", { name: "Payment stream" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Process payment" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "REJECT" }).first()).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Request controlled replay" })).toBeDisabled();
+  await page.getByRole("button", { name: "Investigate payment" }).click();
+  await expect(page.getByText("Sign in as an operator to inspect provider evidence.", { exact: false })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Execute controlled replay" })).toHaveCount(0);
 });

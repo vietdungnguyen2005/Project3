@@ -20,8 +20,8 @@
 ## Recovery
 
 1. Inspect the recorded outcome and replay permission. A healthy rail is necessary, but not sufficient, for safe replay.
-2. `TIMEOUT`, unknown outcomes, interrupted processing and historical rows without explicit permission require reconciliation. The API returns 409 `PAYMENT_RECONCILIATION_REQUIRED`; do not bypass it with SQL or a new create key. Provider lookup/manual resolution is not implemented: leave these instructions parked. Restoring `NORMAL` does not establish their prior outcome. See the [decision matrix](fde/recovery-decision-matrix.md).
-3. Only explicit simulator rejection or a call prevented by the circuit/bulkhead can grant replay permission. Return the demo fault profile to `NORMAL` and confirm health with separate controlled demo traffic.
+2. `TIMEOUT`, unknown outcomes, interrupted processing and historical rows without explicit permission require investigation. Blind replay returns 409 `PAYMENT_RECONCILIATION_REQUIRED`; do not bypass it with SQL or a new create key. For a known original provider reference, use the protected investigation drawer to perform read-only lookup, then explicitly confirm current verified evidence. Verified success resolves locally without authorization; unknown/unavailable/NOT_FOUND stays parked. Historical missing references require manual review. Restoring `NORMAL` never establishes the prior outcome. See the [decision matrix](fde/recovery-decision-matrix.md).
+3. Only explicit final/no-execution simulator rejection or a call prevented by the circuit/bulkhead can grant replay permission. A reconciliation lookup revokes existing permission while investigating; verified rejection must be separately confirmed before a new replay. Return the demo fault profile to `NORMAL` and confirm health with separate controlled traffic.
 4. Request replay of one eligible instruction and confirm an `AUTHORIZED` attempt and `SUCCEEDED` state. Permission is consumed at claim; a later uncertain outcome cannot reuse the earlier permission.
 5. Continue only with eligible instructions while watching failure rate, latency, and parking age. Preserve audit events and open a post-incident review.
 
@@ -29,4 +29,8 @@
 
 Application rollback uses the previously known-good immutable image tag. Flyway migrations must remain forward-compatible; never delete the schema history table or manually rewrite payment states during rollback.
 
-Do not restore an old writer that permits blind timeout replay. The [handoff](fde/operations-handoff.md) and [acceptance boundaries](fde/acceptance-tests.md) distinguish current controls from future reconciliation. This documentation-only update requires no deployment or migration.
+Do not restore an old writer that permits blind timeout replay or cannot maintain provider references. V5 is additive but requires coordinated backend/BFF/frontend rollout and pausing older writers. Preserve the simulator ledger, reconciliation evidence and audit history; never remove migrations to roll back. See the [handoff](fde/operations-handoff.md) and [acceptance evidence](fde/acceptance-tests.md). This feature has not been deployed by this task.
+
+## Interrupted lookup
+
+Lookup persists IN_PROGRESS before I/O. After a process crash, refresh the original investigation; wait for its 30-second database-clock lease, then explicitly repeat lookup. Old evidence becomes INTERRUPTED. Do not replay authorization or manually expire production claims. A database/transaction 503 is unconfirmed local work: refresh the original resource, not a replacement payment. The [game-day](fde/incident-report.md) used an actual owned Java process kill and accelerated lease expiry only in a disposable DB.

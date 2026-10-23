@@ -1,0 +1,71 @@
+{
+  "simulation": true,
+  "environment": "local disposable PostgreSQL/Redis + Java + Next",
+  "scenarios": [
+    {
+      "scenario": "A accepted / response lost",
+      "payment": "VP-FC49947AE5CD",
+      "at": "2026-10-23T18:33:59.078878+00:00",
+      "state": "SUCCEEDED",
+      "providerCalls": 1,
+      "repeatedResolution": "same evidence"
+    },
+    {
+      "scenario": "B final rejection",
+      "payment": "VP-0728D55EE411",
+      "at": "2026-10-23T18:34:01.279302+00:00",
+      "state": "SUCCEEDED",
+      "providerCalls": 2,
+      "priorAttempt": "REJECTED / no execution",
+      "replay": "separate explicit operation"
+    },
+    {
+      "scenario": "C UNKNOWN",
+      "payment": "VP-BB986EE91655",
+      "at": "2026-10-23T18:34:03.497119+00:00",
+      "state": "PARKED",
+      "providerCalls": 1,
+      "lookupSeconds": 0.047,
+      "replayStatus": 409
+    },
+    {
+      "scenario": "C PROVIDER_UNAVAILABLE",
+      "payment": "VP-BB986EE91655",
+      "at": "2026-10-23T18:34:05.293020+00:00",
+      "state": "PARKED",
+      "providerCalls": 1,
+      "lookupSeconds": 0.062,
+      "replayStatus": 409
+    },
+    {
+      "scenario": "C NOT_FOUND",
+      "payment": "VP-BB986EE91655",
+      "at": "2026-10-23T18:34:05.657096+00:00",
+      "state": "PARKED",
+      "injection": "removed only synthetic ledger record",
+      "replayStatus": 409
+    },
+    {
+      "scenario": "D concurrent operators",
+      "payment": "VP-493F517820D5",
+      "at": "2026-10-23T18:34:06.814628+00:00",
+      "state": "SUCCEEDED",
+      "providerCalls": 1,
+      "resolvedAudits": 1,
+      "lookupHttpStatuses": [
+        200,
+        202
+      ]
+    },
+    {
+      "scenario": "E actual process kill / restart",
+      "payment": "VP-4E0CB6B183C5",
+      "at": "2026-10-23T18:34:24.759001+00:00",
+      "preparedAt": "2026-10-23T18:34:08.614994+00:00",
+      "state": "SUCCEEDED",
+      "providerCalls": 1,
+      "previousClaim": "INTERRUPTED",
+      "leaseExpiry": "accelerated in disposable DB; not SLA"
+    }
+  ]
+}

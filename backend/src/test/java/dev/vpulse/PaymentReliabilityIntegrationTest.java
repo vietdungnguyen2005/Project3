@@ -32,6 +32,444 @@ import org.testcontainers.utility.DockerImageName;
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class PaymentReliabilityIntegrationTest {
     @Test
+    void slowProviderLookupHasABoundedDeadlineAndLeavesDurableFailureEvidence() throws Exception {
+        var p = createSimulation("LOOKUP-DEADLINE", "ACCEPT_LOST");
+        String number = p.path("payment").path("paymentNumber").asText();
+        jdbc.sql("UPDATE provider_lookup_configuration SET delay_ms=5000 WHERE rail='CARD'")
+                .update();
+        var service = applicationContext.getBean(dev.vpulse.payment.PaymentReconciliationService.class);
+        long started = System.nanoTime();
+        var evidence = service.reconcile(number, "deadline-operator");
+        org.assertj.core.api.Assertions.assertThat(
+                        java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started))
+                .isLessThan(6000);
+        org.assertj.core.api.Assertions.assertThat(evidence.state()).isEqualTo("OBSERVED");
+        org.assertj.core.api.Assertions.assertThat(evidence.evidenceCode()).isEqualTo("LOOKUP_DEADLINE_EXCEEDED");
+        org.assertj.core.api.Assertions.assertThat(service.investigate(number).replayPermitted())
+                .isFalse();
+        org.assertj.core.api.Assertions.assertThat(((ControlledGateway) gateway).calls.get())
+                .isEqualTo(1);
+    }
+
+    @Test
+    void reconciliationAndResolutionRequireCurrentRoleCsrfAndOperationsTrust() throws Exception {
+        var p = createSimulation("RECON-AUTH", "ACCEPT_LOST");
+        String number = p.path("payment").path("paymentNumber").asText();
+        var service = applicationContext.getBean(dev.vpulse.payment.PaymentReconciliationService.class);
+        var evidence = service.reconcile(number, "setup-operator");
+        var auth = operatorRequest();
+        for (String path : java.util.List.of(
+                "/api/payments/" + number + "/reconciliation",
+                "/api/payments/" + number + "/reconciliation/" + evidence.id() + "/resolve")) {
+            mvc.perform(post(path).header("X-V-Pulse-BFF-Secret", BFF).header("X-V-Pulse-Ops-Secret", OPS))
+                    .andExpect(status().isUnauthorized());
+            mvc.perform(post(path)
+                            .cookie(operatorCookie)
+                            .header("X-V-Pulse-BFF-Secret", BFF)
+                            .header("X-V-Pulse-Ops-Secret", OPS))
+                    .andExpect(status().isForbidden());
+            mvc.perform(post(path)
+                            .with(auth)
+                            .header("X-V-Pulse-BFF-Secret", BFF)
+                            .header("X-V-Pulse-Ops-Secret", "invalid"))
+                    .andExpect(status().isForbidden());
+        }
+        jdbc.sql("UPDATE auth_account SET role='VIEWER' WHERE username='operator@example.test'")
+                .update();
+        try {
+            mvc.perform(post("/api/payments/" + number + "/reconciliation/" + evidence.id() + "/resolve")
+                            .with(auth)
+                            .header("X-V-Pulse-BFF-Secret", BFF)
+                            .header("X-V-Pulse-Ops-Secret", OPS))
+                    .andExpect(status().isForbidden());
+            mvc.perform(get("/api/payments/" + number + "/investigation")
+                            .with(auth)
+                            .header("X-V-Pulse-BFF-Secret", BFF)
+                            .header("X-V-Pulse-Ops-Secret", OPS))
+                    .andExpect(status().isForbidden());
+        } finally {
+            jdbc.sql("UPDATE auth_account SET role='OPERATOR' WHERE username='operator@example.test'")
+                    .update();
+        }
+        org.assertj.core.api.Assertions.assertThat(
+                        jdbc.sql("SELECT status FROM payment_instruction WHERE payment_number=:number")
+                                .param("number", number)
+                                .query(String.class)
+                                .single())
+                .isEqualTo("PARKED");
+        org.assertj.core.api.Assertions.assertThat(((ControlledGateway) gateway).calls.get())
+                .isEqualTo(1);
+    }
+
+    @Test
+    void providerCommitSurvivesLocalFinalizationRollbackAndRecoveryNeverReauthorizes() throws Exception {
+        jdbc.sql(
+                        "CREATE FUNCTION qa_fail_finalize() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF EXISTS(SELECT 1 FROM payment_instruction WHERE id=NEW.payment_id AND merchant_id='ROLLBACK-PROVIDER') THEN RAISE EXCEPTION 'synthetic finalization failure'; END IF; RETURN NEW; END $$")
+                .update();
+        jdbc.sql(
+                        "CREATE TRIGGER qa_fail_finalize BEFORE INSERT ON payment_attempt FOR EACH ROW EXECUTE FUNCTION qa_fail_finalize()")
+                .update();
+        String number;
+        try {
+            mvc.perform(
+                            post("/api/payments")
+                                    .with(operatorRequest())
+                                    .header("X-V-Pulse-BFF-Secret", BFF)
+                                    .contentType("application/json")
+                                    .content(
+                                            "{\"merchantId\":\"ROLLBACK-PROVIDER\",\"rail\":\"CARD\",\"amountMinor\":1000,\"currency\":\"JPY\"}"))
+                    .andExpect(status().isServiceUnavailable());
+            number = jdbc.sql("SELECT payment_number FROM payment_instruction WHERE merchant_id='ROLLBACK-PROVIDER'")
+                    .query(String.class)
+                    .single();
+            org.assertj.core.api.Assertions.assertThat(jdbc.sql(
+                                    "SELECT l.outcome FROM simulated_provider_ledger l JOIN payment_instruction p ON p.provider_reference=l.reference WHERE p.payment_number=:number")
+                            .param("number", number)
+                            .query(String.class)
+                            .single())
+                    .isEqualTo("AUTHORIZED");
+        } finally {
+            jdbc.sql("DROP TRIGGER qa_fail_finalize ON payment_attempt").update();
+            jdbc.sql("DROP FUNCTION qa_fail_finalize()").update();
+        }
+        jdbc.sql(
+                        "UPDATE payment_instruction SET updated_at=clock_timestamp()-INTERVAL '3 minutes' WHERE payment_number=:number")
+                .param("number", number)
+                .update();
+        applicationContext.getBean(StalledPaymentRecovery.class).parkStalledInstructions();
+        var service = applicationContext.getBean(dev.vpulse.payment.PaymentReconciliationService.class);
+        var observed = service.reconcile(number, "recovery-operator");
+        org.assertj.core.api.Assertions.assertThat(observed.outcome()).isEqualTo("VERIFIED_SUCCESS");
+        service.resolve(number, observed.id(), "recovery-operator");
+        org.assertj.core.api.Assertions.assertThat(((ControlledGateway) gateway).calls.get())
+                .isEqualTo(1);
+    }
+
+    @Test
+    void unsafeReplayRejectionHasALowCardinalityCounter() throws Exception {
+        var registry = applicationContext.getBean(io.micrometer.core.instrument.MeterRegistry.class);
+        var meter = registry.counter("vpulse.replay.unsafe.rejected");
+        double before = meter.count();
+        var p = createSimulation("METRIC-UNKNOWN", "TIMEOUT");
+        String number = p.path("payment").path("paymentNumber").asText();
+        mvc.perform(post("/api/parking/" + number + "/replay")
+                        .with(operatorRequest())
+                        .header("X-V-Pulse-BFF-Secret", BFF)
+                        .header("X-V-Pulse-Ops-Secret", OPS))
+                .andExpect(status().isConflict());
+        org.assertj.core.api.Assertions.assertThat(meter.count()).isEqualTo(before + 1);
+    }
+
+    @Test
+    void expiredLookupIsRecoveredAndHistoricalOrStaleEvidenceCannotResolve() throws Exception {
+        var p = createSimulation("LEASE-RECOVERY", "ACCEPT_LOST");
+        String number = p.path("payment").path("paymentNumber").asText();
+        UUID abandoned = UUID.randomUUID();
+        jdbc.sql(
+                        "INSERT INTO payment_reconciliation(id,payment_id,provider_reference,payment_version,state,requested_by,lease_until) SELECT :run,id,provider_reference,version,'IN_PROGRESS','crashed-operator',clock_timestamp()-INTERVAL '1 second' FROM payment_instruction WHERE payment_number=:number")
+                .param("run", abandoned)
+                .param("number", number)
+                .update();
+        var service = applicationContext.getBean(dev.vpulse.payment.PaymentReconciliationService.class);
+        var fresh = service.reconcile(number, "recovery-operator");
+        org.assertj.core.api.Assertions.assertThat(fresh.outcome()).isEqualTo("VERIFIED_SUCCESS");
+        org.assertj.core.api.Assertions.assertThat(jdbc.sql("SELECT state FROM payment_reconciliation WHERE id=:id")
+                        .param("id", abandoned)
+                        .query(String.class)
+                        .single())
+                .isEqualTo("INTERRUPTED");
+        org.assertj.core.api.Assertions.assertThat(
+                        service.reconcile(number, "another-operator").id())
+                .isEqualTo(fresh.id());
+        jdbc.sql("UPDATE payment_instruction SET version=version+1 WHERE payment_number=:number")
+                .param("number", number)
+                .update();
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.resolve(number, fresh.id(), "stale-operator"))
+                .isInstanceOf(dev.vpulse.payment.PaymentProcessingException.class);
+        jdbc.sql("UPDATE payment_instruction SET provider_reference=NULL WHERE payment_number=:number")
+                .param("number", number)
+                .update();
+        var historical = service.reconcile(number, "historical-operator");
+        org.assertj.core.api.Assertions.assertThat(historical.evidenceCode()).isEqualTo("HISTORICAL_REFERENCE_MISSING");
+        org.assertj.core.api.Assertions.assertThat(service.investigate(number).nextAction())
+                .isEqualTo("MANUAL_REVIEW");
+        mvc.perform(post("/api/parking/" + number + "/replay")
+                        .with(operatorRequest())
+                        .header("X-V-Pulse-BFF-Secret", BFF)
+                        .header("X-V-Pulse-Ops-Secret", OPS))
+                .andExpect(status().isConflict());
+        org.assertj.core.api.Assertions.assertThat(((ControlledGateway) gateway).calls.get())
+                .isEqualTo(1);
+    }
+
+    @Test
+    void lookupFaultConfigurationRequiresOperatorCsrfAndOperationsTrust() throws Exception {
+        String url = "/api/demo/rails/CARD/lookup-profile";
+        mvc.perform(post(url)
+                        .header("X-V-Pulse-BFF-Secret", BFF)
+                        .header("X-V-Pulse-Ops-Secret", OPS)
+                        .contentType("application/json")
+                        .content("{\"mode\":\"UNAVAILABLE\",\"delayMs\":0}"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(post(url)
+                        .with(operatorRequest())
+                        .header("X-V-Pulse-BFF-Secret", BFF)
+                        .header("X-V-Pulse-Ops-Secret", OPS)
+                        .contentType("application/json")
+                        .content("{\"mode\":\"UNAVAILABLE\",\"delayMs\":0}"))
+                .andExpect(status().isOk());
+        org.assertj.core.api.Assertions.assertThat(
+                        jdbc.sql("SELECT mode FROM provider_lookup_configuration WHERE rail='CARD'")
+                                .query(String.class)
+                                .single())
+                .isEqualTo("UNAVAILABLE");
+    }
+
+    @Test
+    void concurrentInvestigationsAndResolutionsProduceOneConsistentDecision() throws Exception {
+        var p = createSimulation("CONCURRENT-LOOKUP", "ACCEPT_LOST");
+        String number = p.path("payment").path("paymentNumber").asText();
+        jdbc.sql("UPDATE provider_lookup_configuration SET delay_ms=200 WHERE rail='CARD'")
+                .update();
+        var service = applicationContext.getBean(dev.vpulse.payment.PaymentReconciliationService.class);
+        var gate = new java.util.concurrent.CountDownLatch(1);
+        try (var pool = java.util.concurrent.Executors.newFixedThreadPool(2)) {
+            var a = pool.submit(() -> {
+                gate.await();
+                return service.reconcile(number, "operator-a");
+            });
+            var b = pool.submit(() -> {
+                gate.await();
+                return service.reconcile(number, "operator-b");
+            });
+            gate.countDown();
+            var first = a.get(10, java.util.concurrent.TimeUnit.SECONDS);
+            var second = b.get(10, java.util.concurrent.TimeUnit.SECONDS);
+            org.assertj.core.api.Assertions.assertThat(first.id()).isEqualTo(second.id());
+            var x = pool.submit(() -> service.resolve(number, first.id(), "operator-a"));
+            var y = pool.submit(() -> service.resolve(number, first.id(), "operator-b"));
+            org.assertj.core.api.Assertions.assertThat(
+                            x.get(10, java.util.concurrent.TimeUnit.SECONDS).state())
+                    .isEqualTo("RESOLVED");
+            org.assertj.core.api.Assertions.assertThat(
+                            y.get(10, java.util.concurrent.TimeUnit.SECONDS).state())
+                    .isEqualTo("RESOLVED");
+        }
+        org.assertj.core.api.Assertions.assertThat(jdbc.sql(
+                                "SELECT COUNT(*) FROM audit_event WHERE aggregate_id=:number AND action='RECONCILIATION_RESOLVED'")
+                        .param("number", number)
+                        .query(Integer.class)
+                        .single())
+                .isEqualTo(1);
+        org.assertj.core.api.Assertions.assertThat(((ControlledGateway) gateway).calls.get())
+                .isEqualTo(1);
+    }
+
+    @Autowired
+    org.springframework.context.ApplicationContext applicationContext;
+
+    @Test
+    void unknownNotFoundAndUnavailableLookupResultsNeverGrantResolutionOrReplay() throws Exception {
+        for (String scenario : java.util.List.of("UNKNOWN", "UNAVAILABLE", "NOT_FOUND")) {
+            var p = createSimulation("UNVERIFIED-" + scenario, "TIMEOUT");
+            String number = p.path("payment").path("paymentNumber").asText();
+            var auth = operatorRequest();
+            jdbc.sql("UPDATE provider_lookup_configuration SET mode=:mode WHERE rail='CARD'")
+                    .param("mode", scenario.equals("NOT_FOUND") ? "NORMAL" : scenario)
+                    .update();
+            if (scenario.equals("NOT_FOUND"))
+                jdbc.sql(
+                                "DELETE FROM simulated_provider_ledger WHERE reference=(SELECT provider_reference FROM payment_instruction WHERE payment_number=:number)")
+                        .param("number", number)
+                        .update();
+            var response = mvc.perform(post("/api/payments/" + number + "/reconciliation")
+                            .with(auth)
+                            .header("X-V-Pulse-BFF-Secret", BFF)
+                            .header("X-V-Pulse-Ops-Secret", OPS))
+                    .andExpect(status().isOk())
+                    .andReturn();
+            var evidence = objectMapper.readTree(response.getResponse().getContentAsString());
+            org.assertj.core.api.Assertions.assertThat(evidence.path("outcome").asText())
+                    .isEqualTo(scenario.equals("UNAVAILABLE") ? "PROVIDER_UNAVAILABLE" : scenario);
+            mvc.perform(post("/api/payments/" + number + "/reconciliation/"
+                                    + evidence.path("id").asText() + "/resolve")
+                            .with(auth)
+                            .header("X-V-Pulse-BFF-Secret", BFF)
+                            .header("X-V-Pulse-Ops-Secret", OPS))
+                    .andExpect(status().isConflict());
+            mvc.perform(post("/api/parking/" + number + "/replay")
+                            .with(auth)
+                            .header("X-V-Pulse-BFF-Secret", BFF)
+                            .header("X-V-Pulse-Ops-Secret", OPS))
+                    .andExpect(status().isConflict());
+            org.assertj.core.api.Assertions.assertThat(jdbc.sql(
+                                    "SELECT COUNT(*) FROM payment_reconciliation WHERE payment_id=(SELECT id FROM payment_instruction WHERE payment_number=:number) AND state='OBSERVED'")
+                            .param("number", number)
+                            .query(Integer.class)
+                            .single())
+                    .isEqualTo(1);
+        }
+    }
+
+    @Test
+    void verifiedRejectionNeedsExplicitResolutionBeforeExistingControlledReplay() throws Exception {
+        var p = createSimulation("RECON-REJECT", "REJECT");
+        String number = p.path("payment").path("paymentNumber").asText();
+        var auth = operatorRequest();
+        String response = mvc.perform(post("/api/payments/" + number + "/reconciliation")
+                        .with(auth)
+                        .header("X-V-Pulse-BFF-Secret", BFF)
+                        .header("X-V-Pulse-Ops-Secret", OPS))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.outcome", is("VERIFIED_REJECTION")))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        mvc.perform(post("/api/parking/" + number + "/replay")
+                        .with(auth)
+                        .header("X-V-Pulse-BFF-Secret", BFF)
+                        .header("X-V-Pulse-Ops-Secret", OPS))
+                .andExpect(status().isConflict());
+        String id = objectMapper.readTree(response).path("id").asText();
+        mvc.perform(post("/api/payments/" + number + "/reconciliation/" + id + "/resolve")
+                        .with(auth)
+                        .header("X-V-Pulse-BFF-Secret", BFF)
+                        .header("X-V-Pulse-Ops-Secret", OPS))
+                .andExpect(status().isOk());
+        org.assertj.core.api.Assertions.assertThat(((ControlledGateway) gateway).calls.get())
+                .isEqualTo(1);
+        jdbc.sql("UPDATE rail_configuration SET failure_mode='NORMAL' WHERE rail='CARD'")
+                .update();
+        gateway.reset();
+        mvc.perform(post("/api/parking/" + number + "/replay")
+                        .with(auth)
+                        .header("X-V-Pulse-BFF-Secret", BFF)
+                        .header("X-V-Pulse-Ops-Secret", OPS))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.payment.status", is("SUCCEEDED")));
+        org.assertj.core.api.Assertions.assertThat(jdbc.sql(
+                                "SELECT COUNT(*) FROM simulated_provider_ledger l JOIN payment_instruction p ON l.reference LIKE 'vpulse:'||p.id||':%' WHERE p.payment_number=:number AND l.outcome='AUTHORIZED'")
+                        .param("number", number)
+                        .query(Integer.class)
+                        .single())
+                .isEqualTo(1);
+    }
+
+    @Test
+    void investigationIsOperatorOnlyAndShowsPermittedActionAndAudit() throws Exception {
+        var p = createSimulation("INSPECT-UNKNOWN", "TIMEOUT");
+        String number = p.path("payment").path("paymentNumber").asText();
+        mvc.perform(get("/api/payments/" + number + "/investigation")
+                        .header("X-V-Pulse-BFF-Secret", BFF)
+                        .header("X-V-Pulse-Ops-Secret", OPS))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/payments/" + number + "/investigation")
+                        .with(operatorRequest())
+                        .header("X-V-Pulse-BFF-Secret", BFF)
+                        .header("X-V-Pulse-Ops-Secret", OPS))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nextAction", is("RECONCILE_PROVIDER")))
+                .andExpect(jsonPath("$.replayPermitted", is(false)))
+                .andExpect(jsonPath("$.audit[0].actor", is("operator@example.test")));
+    }
+
+    @Test
+    void explicitResolutionOfVerifiedSuccessIsIdempotentAndNeverAuthorizesAgain() throws Exception {
+        var payment = createSimulation("RESOLVE-LOST", "ACCEPT_LOST");
+        String number = payment.path("payment").path("paymentNumber").asText();
+        var auth = operatorRequest();
+        String body = mvc.perform(post("/api/payments/" + number + "/reconciliation")
+                        .with(auth)
+                        .header("X-V-Pulse-BFF-Secret", BFF)
+                        .header("X-V-Pulse-Ops-Secret", OPS))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String id = objectMapper.readTree(body).path("id").asText();
+        for (int repeat = 0; repeat < 2; repeat++)
+            mvc.perform(post("/api/payments/" + number + "/reconciliation/" + id + "/resolve")
+                            .with(auth)
+                            .header("X-V-Pulse-BFF-Secret", BFF)
+                            .header("X-V-Pulse-Ops-Secret", OPS))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.state", is("RESOLVED")));
+        org.assertj.core.api.Assertions.assertThat(
+                        jdbc.sql("SELECT status FROM payment_instruction WHERE payment_number=:number")
+                                .param("number", number)
+                                .query(String.class)
+                                .single())
+                .isEqualTo("SUCCEEDED");
+        org.assertj.core.api.Assertions.assertThat(jdbc.sql(
+                                "SELECT COUNT(*) FROM audit_event WHERE aggregate_id=:number AND action='RECONCILIATION_RESOLVED'")
+                        .param("number", number)
+                        .query(Integer.class)
+                        .single())
+                .isEqualTo(1);
+        org.assertj.core.api.Assertions.assertThat(((ControlledGateway) gateway).calls.get())
+                .isEqualTo(1);
+    }
+
+    @Test
+    void providerLookupRecordsEvidenceWithoutResolvingOrAuthorizingAgain() throws Exception {
+        var payment = createSimulation("LOOKUP-LOST", "ACCEPT_LOST");
+        String number = payment.path("payment").path("paymentNumber").asText();
+        mvc.perform(post("/api/payments/" + number + "/reconciliation")
+                        .with(operatorRequest())
+                        .header("X-V-Pulse-BFF-Secret", BFF)
+                        .header("X-V-Pulse-Ops-Secret", OPS))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.outcome", is("VERIFIED_SUCCESS")))
+                .andExpect(jsonPath("$.state", is("OBSERVED")));
+        org.assertj.core.api.Assertions.assertThat(
+                        jdbc.sql("SELECT status FROM payment_instruction WHERE payment_number=:number")
+                                .param("number", number)
+                                .query(String.class)
+                                .single())
+                .isEqualTo("PARKED");
+        org.assertj.core.api.Assertions.assertThat(jdbc.sql(
+                                "SELECT authorization_calls FROM simulated_provider_ledger l JOIN payment_instruction p ON p.provider_reference=l.reference WHERE p.payment_number=:number")
+                        .param("number", number)
+                        .query(Integer.class)
+                        .single())
+                .isEqualTo(1);
+    }
+
+    @Test
+    void acceptedButLostResponseHasAnIndependentProviderRecordWhileLocalPaymentIsParked() throws Exception {
+        var payment = createSimulation("LEDGER-LOST", "ACCEPT_LOST");
+        org.assertj.core.api.Assertions.assertThat(
+                        payment.path("payment").path("status").asText())
+                .isEqualTo("PARKED");
+        String number = payment.path("payment").path("paymentNumber").asText();
+        org.assertj.core.api.Assertions.assertThat(jdbc.sql(
+                                """
+                SELECT l.outcome FROM simulated_provider_ledger l JOIN payment_instruction p ON p.provider_reference=l.reference
+                WHERE p.payment_number=:number
+                """)
+                        .param("number", number)
+                        .query(String.class)
+                        .single())
+                .isEqualTo("AUTHORIZED");
+    }
+
+    private com.fasterxml.jackson.databind.JsonNode createSimulation(String merchant, String mode) throws Exception {
+        gateway.reset();
+        jdbc.sql("UPDATE rail_configuration SET failure_mode=:mode,simulated_delay_ms=0 WHERE rail='CARD'")
+                .param("mode", mode)
+                .update();
+        var response = mvc.perform(post("/api/payments")
+                        .with(operatorRequest())
+                        .header("X-V-Pulse-BFF-Secret", BFF)
+                        .contentType("application/json")
+                        .content("{\"merchantId\":\"" + merchant
+                                + "\",\"rail\":\"CARD\",\"amountMinor\":1000,\"currency\":\"JPY\"}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+        return objectMapper.readTree(response.getResponse().getContentAsString());
+    }
+
+    @Test
     void replayRechecksPermissionAfterWaitingForTheInstructionLock() throws Exception {
         var authorized = operatorRequest();
         var id = UUID.randomUUID();
@@ -183,16 +621,17 @@ class PaymentReliabilityIntegrationTest {
                         "CREATE TRIGGER qa_abort_identity BEFORE INSERT ON payment_create_operation FOR EACH ROW EXECUTE FUNCTION qa_abort_identity()")
                 .update();
         try {
-            org.assertj.core.api.Assertions.assertThatThrownBy(
-                            () -> mvc.perform(
-                                    post("/api/payments")
-                                            .with(authorized)
-                                            .header("X-V-Pulse-BFF-Secret", BFF)
-                                            .header("Idempotency-Key", "rollback-operation")
-                                            .contentType("application/json")
-                                            .content(
-                                                    "{\"merchantId\":\"MERCHANT-ROLLBACK\",\"rail\":\"CARD\",\"amountMinor\":1000,\"currency\":\"JPY\"}")))
-                    .hasStackTraceContaining("controlled identity staging failure");
+            // The API now sanitizes database errors as 503; the rollback invariants below are unchanged.
+            mvc.perform(
+                            post("/api/payments")
+                                    .with(authorized)
+                                    .header("X-V-Pulse-BFF-Secret", BFF)
+                                    .header("Idempotency-Key", "rollback-operation")
+                                    .contentType("application/json")
+                                    .content(
+                                            "{\"merchantId\":\"MERCHANT-ROLLBACK\",\"rail\":\"CARD\",\"amountMinor\":1000,\"currency\":\"JPY\"}"))
+                    .andExpect(status().isServiceUnavailable())
+                    .andExpect(jsonPath("$.code", is("DATABASE_UNAVAILABLE")));
             org.assertj.core.api.Assertions.assertThat(
                             jdbc.sql("SELECT COUNT(*) FROM payment_instruction WHERE merchant_id='MERCHANT-ROLLBACK'")
                                     .query(Long.class)
@@ -488,8 +927,11 @@ class PaymentReliabilityIntegrationTest {
     static class GatewayTestConfiguration {
         @org.springframework.context.annotation.Bean
         @org.springframework.context.annotation.Primary
-        ControlledGateway controlledGateway(JdbcClient jdbc, io.micrometer.core.instrument.MeterRegistry metrics) {
-            return new ControlledGateway(jdbc, metrics);
+        ControlledGateway controlledGateway(
+                JdbcClient jdbc,
+                io.micrometer.core.instrument.MeterRegistry metrics,
+                dev.vpulse.payment.SimulatedPaymentProvider provider) {
+            return new ControlledGateway(jdbc, metrics, provider);
         }
     }
 
@@ -498,15 +940,18 @@ class PaymentReliabilityIntegrationTest {
         volatile java.util.concurrent.CountDownLatch entered;
         volatile java.util.concurrent.CountDownLatch release;
 
-        ControlledGateway(JdbcClient jdbc, io.micrometer.core.instrument.MeterRegistry metrics) {
-            super(jdbc, metrics);
+        ControlledGateway(
+                JdbcClient jdbc,
+                io.micrometer.core.instrument.MeterRegistry metrics,
+                dev.vpulse.payment.SimulatedPaymentProvider provider) {
+            super(jdbc, metrics, provider);
         }
 
         @Override
-        public RailResult authorize(String rail) {
+        public RailResult authorize(String rail, dev.vpulse.payment.ProviderOutcomeLookup.Operation operation) {
             calls.incrementAndGet();
             var gate = release;
-            if (gate == null) return super.authorize(rail);
+            if (gate == null) return super.authorize(rail, operation);
             entered.countDown();
             try {
                 if (!gate.await(10, java.util.concurrent.TimeUnit.SECONDS))
@@ -611,6 +1056,8 @@ class PaymentReliabilityIntegrationTest {
 
     @BeforeEach
     void resetFaultInjection() {
+        jdbc.sql("UPDATE provider_lookup_configuration SET mode='NORMAL',delay_ms=0")
+                .update();
         operatorCookie = null;
         jdbc.sql("TRUNCATE spring_session_attributes, spring_session, auth_login_window")
                 .update();

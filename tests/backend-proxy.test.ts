@@ -3,6 +3,16 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { proxyBackend } from "@/lib/backend-proxy";
 
 describe("proxyBackend", () => {
+  it("exposes only the reconciliation investigation/lookup/resolve routes with server operations trust", async () => {
+    vi.stubEnv("BACKEND_ORIGIN","https://backend.test");vi.stubEnv("BFF_SHARED_SECRET","bff");vi.stubEnv("VPULSE_OPS_SECRET","ops");
+    const upstream=vi.fn().mockResolvedValue(Response.json({state:"OBSERVED"}));vi.stubGlobal("fetch",upstream);
+    const response=await proxyBackend("payments/VP-TEST/reconciliation",new Request("https://ui.test/api/control/payments/VP-TEST/reconciliation",{
+      method:"POST",headers:{"X-CSRF-TOKEN":"csrf","X-V-Pulse-Ops-Secret":"forged"},
+    }));
+    expect(response.status).toBe(200);
+    expect(upstream.mock.calls[0][1].headers["X-V-Pulse-Ops-Secret"]).toBe("ops");
+    expect(upstream.mock.calls[0][1].headers["X-CSRF-TOKEN"]).toBe("csrf");
+  });
   it("forwards the original payment operation key without generating a replacement", async () => {
     vi.stubEnv("BACKEND_ORIGIN", "https://backend.test");
     vi.stubEnv("BFF_SHARED_SECRET", "trusted");

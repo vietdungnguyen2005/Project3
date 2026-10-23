@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Activity, AlertTriangle, CircleCheck, Clock3, Play, RefreshCw, Send, ShieldCheck, X } from "lucide-react";
+import { Activity, AlertTriangle, CircleCheck, Clock3, RefreshCw, Send, ShieldCheck, X } from "lucide-react";
+import { PaymentInvestigation } from "@/components/payment-investigation";
 import { OperatorSessionPanel } from "@/components/operator-session-panel";
 import { operatorFetch } from "@/lib/operator-session";
 import { PaymentCreateHandler } from "@/lib/payment-create/handler";
@@ -170,8 +171,8 @@ export function ReliabilityControlPlane() {
                     <div><h3 className="font-mono text-sm font-bold text-white">{item.rail}</h3><p className="mt-1 text-xs text-[color:var(--muted)]">{item.displayName}</p></div>
                     <span className={`circuit ${item.circuitState === "CLOSED" ? "circuit-closed" : "circuit-open"}`}>{item.circuitState}</span>
                   </div>
-                  <div className="mt-4 grid grid-cols-3 gap-1">
-                    {(["NORMAL", "TIMEOUT", "REJECT"] as FailureMode[]).map((mode) => (
+                  <div className="mt-4 grid grid-cols-2 gap-1">
+                    {(["NORMAL", "TIMEOUT", "REJECT", "ACCEPT_LOST"] as FailureMode[]).map((mode) => (
                       <button className={`profile-button ${item.failureMode === mode ? "profile-active" : ""}`} disabled={!canOperate || busy !== null} key={mode} onClick={() => void setFaultProfile(item.rail, mode)} type="button">{mode}</button>
                     ))}
                   </div>
@@ -216,7 +217,7 @@ export function ReliabilityControlPlane() {
                 <article className="parking-card" key={payment.paymentNumber}>
                   <div className="flex justify-between gap-2"><button className="font-mono text-xs font-bold text-white hover:text-[color:var(--accent)]" onClick={() => void openDetail(payment.paymentNumber)} type="button">{payment.paymentNumber}</button><span className="font-mono text-[10px] text-red-300">PARKED</span></div>
                   <p className="mt-2 text-xs text-[color:var(--muted)]">{payment.rail} · {formatYen(payment.amountMinor)}</p>
-                  <button className="replay-button mt-3" disabled={!canOperate || busy !== null} onClick={() => void run(`replay-${payment.paymentNumber}`, () => api(`parking/${payment.paymentNumber}/replay`, { method: "POST" }))} type="button"><Play size={12} /> Request controlled replay</button>
+                  <button className="replay-button mt-3" disabled={busy !== null} onClick={() => void openDetail(payment.paymentNumber)} type="button">Investigate payment</button>
                 </article>
               ))}
               {!parking.length && overview ? <div className="p-8 text-center text-sm text-[color:var(--muted)]"><CircleCheck className="mx-auto mb-3 text-emerald-300" /> Recovery queue clear</div> : null}
@@ -229,7 +230,7 @@ export function ReliabilityControlPlane() {
         </footer>
       </div>
 
-      {selected ? <DetailDrawer detail={selected} onClose={() => setSelected(null)} /> : null}
+      {selected ? <DetailDrawer detail={selected} canOperate={canOperate} onChanged={() => { void load(); void openDetail(selected.payment.paymentNumber); }} onClose={() => setSelected(null)} /> : null}
     </main>
   );
 }
@@ -250,7 +251,7 @@ function Skeleton() {
   return <div className="h-28 animate-pulse border border-[color:var(--line)] bg-white/[0.03]" />;
 }
 
-function DetailDrawer({ detail, onClose }: { detail: PaymentDetail; onClose: () => void }) {
+function DetailDrawer({ detail, canOperate, onChanged, onClose }: { detail: PaymentDetail; canOperate: boolean; onChanged: () => void; onClose: () => void }) {
   return (
     <div className="drawer-backdrop" onMouseDown={onClose} role="presentation">
       <aside aria-label="Payment details" className="detail-drawer" onMouseDown={(event) => event.stopPropagation()}>
@@ -260,6 +261,7 @@ function DetailDrawer({ detail, onClose }: { detail: PaymentDetail; onClose: () 
         {detail.parkedReason ? <div className="mt-5 border-l-2 border-red-400 bg-red-950/35 p-3 text-sm text-red-100"><strong>Park reason:</strong> {detail.parkedReason}</div> : null}
         <h3 className="mt-8 font-mono text-xs font-bold uppercase tracking-widest text-white">Attempt timeline</h3>
         <div className="mt-3 space-y-3">{detail.attempts.map((attempt) => <article className="attempt" key={attempt.attemptNumber}><Clock3 size={14} /><div><strong>#{attempt.attemptNumber} · {attempt.outcome}</strong><p>{attempt.detail}</p><span>{attempt.latencyMs}ms · {new Date(attempt.createdAt).toLocaleString("en-GB")}</span></div></article>)}</div>
+        <PaymentInvestigation key={detail.payment.paymentNumber} number={detail.payment.paymentNumber} canOperate={canOperate} onChanged={onChanged} />
       </aside>
     </div>
   );

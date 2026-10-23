@@ -1,0 +1,75 @@
+{
+  "simulation": true,
+  "verifiedDate": "2026-10-24",
+  "timezone": "Asia/Bangkok",
+  "baseCommit": "0e92e450e314805d3054e01b4a8fa882aa524dd9",
+  "branch": "feat/provider-reconciliation",
+  "backend": {
+    "tests": 42,
+    "integrationTests": 32,
+    "validationTests": 1,
+    "replayPolicyCases": 9,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "postgres": "17.6",
+    "redis": "8.2"
+  },
+  "frontend": {
+    "tests": 29,
+    "testFiles": 11,
+    "lint": "passed",
+    "typecheck": "passed",
+    "nextBuild": "passed"
+  },
+  "browserFixtures": {
+    "tests": 6,
+    "projects": [
+      "chromium",
+      "mobile-chrome"
+    ],
+    "result": "passed"
+  },
+  "realServerGameDay": {
+    "scenarios": [
+      "A",
+      "B",
+      "C",
+      "D",
+      "E"
+    ],
+    "result": "passed",
+    "actualJavaKill": true,
+    "leaseExpiry": "accelerated in disposable DB, not recovery SLA",
+    "results": "game-day.json"
+  },
+  "dependencyAudit": {
+    "runtimeVulnerabilities": 0,
+    "fullAuditVulnerabilities": 0,
+    "approvedNarrowPolicyUnchanged": true
+  },
+  "cloudflareBuild": "passed; no deployment",
+  "docker": {
+    "result": "passed",
+    "user": "vpulse",
+    "imageId": "sha256:8fd65bc27a82d04f35f354072f1e5674d5010de3a18d708934d5123e28c8a02d"
+  },
+  "infrastructure": {
+    "composeConfig": "passed",
+    "helmLintAndTemplate": "passed",
+    "terraformFmtAndValidate": "passed",
+    "apply": false
+  },
+  "remoteCI": "not run",
+  "pushed": false,
+  "deployed": false,
+  "sourceAndEvidenceSha256": {
+    "backend/src/main/java/dev/vpulse/payment/SimulatedPaymentProvider.java": "05cbd782d46bdf5bc6db76c75b5f5a12fd57892a00ac58d753b3457be920054d",
+    "docs/fde/evidence/game-day.json": "ca423e90e98f701c072e2610ccb5d88886f40b7114cbe7b755d8ae2205fb5528",
+    "components/payment-investigation.tsx": "adc81c9aee3d3577e8789c38c30ff43978cccd0d7c3c7b3d8a9256028dd53c00",
+    "backend/src/main/java/dev/vpulse/payment/PaymentReconciliationService.java": "4f53de231582290a8a94a4325670bb879ee8fda672abb7d271e8ed52a0875320",
+    "backend/src/main/resources/db/migration/V5__provider_reconciliation.sql": "c2c9baef1ab2379e4d903f4d8aafee9f24627b43838151aff29059ad450f766e",
+    "backend/src/main/java/dev/vpulse/payment/PaymentService.java": "371436e3b0d8eaf0eb156ae945ae5e53a6816d11e43a8e35ed34ee34b6c9f3a4"
+  },
+  "hashNormalization": "SHA-256 of UTF-8 text, CRLF normalized to LF"
+}

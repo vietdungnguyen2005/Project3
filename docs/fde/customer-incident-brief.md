@@ -1,35 +1,28 @@
 # Customer incident brief — simulated payment uncertainty
 
-> Documentation-only assessment of source `08e6a0170dc7d4558f8c49bd2f6d6274c991e2f3`, reviewed on 2026-10-24. No payment functionality, migrations or provider integration were added for this handoff.
-
 ## Fictional customer problem
 
-A fictional merchant experiences intermittent authorization responses. A timeout does not establish whether a provider executed the request. Operations needs to distinguish confirmed success, explicit rejection and uncertainty, preserve evidence, and avoid a second financial operation disguised as recovery.
+A fictional merchant sees intermittent authorization responses. Operations must distinguish accepted, rejected and unknown original operations with evidence and attributable decisions. Retrying a timeout is not a safe substitute for investigation.
 
-V-Pulse currently demonstrates **failure containment and fail-closed local recovery policy**, not provider reconciliation. Its rail is a local delay/rejection simulator, not an independent financial system. Do not describe this case as a real customer incident, external provider integration or exactly-once settlement.
+This portfolio case implements **simulated provider lookup and separate operator resolution**. It is not a real customer engagement, provider integration, production incident or exactly-once financial settlement.
 
-## Current-state audit / gaps
+## Audit and bounded delivery
 
-| Area | Implemented and inspected | Limitation |
+Base `0e92e45` already had merchant create identity, short business transactions, a 250 ms response wait, eight-permit rail bulkhead, circuit breaker, replay permissions, version fences, sessions, CSRF and BFF trust. It lacked provider identity/ledger, lookup evidence, confirmation UI and reconciliation crash proof. This implementation supersedes the documentation-only proposal; [implementation record](implementation-record.md) retains provenance.
+
+| Addition | Operational value | Boundary |
 | --- | --- | --- |
-| Ingress | Merchant/key/request hashes, advisory lock, atomic create identity and audit | Global operator demo dataset; not merchant authentication or external provider idempotency |
-| Gateway | 250 ms simulated response wait, per-rail eight-permit bulkhead, Resilience4j circuit breaker | No stable external operation reference or authoritative provider ledger; configuration/DB waits are outside the response-wait claim |
-| Parking | Attempts, reasons, explicit durable replay permission, atomic claim and permission consumption | TIMEOUT/unknown/interrupted outcomes cannot currently be resolved through provider lookup |
-| Crash handling | Two-minute stale PROCESSING detection, version increment and parking with permission false | Not a full worker lease protocol; does not discover external financial outcome |
-| Operator control | Session/role/CSRF, server-only trust secrets, create/replay audit principal | Existing UI can request replay; it has no provider evidence/confirmation investigation workflow |
-| Observability | Rail/rate-limit metrics, Actuator, Grafana config, parking age in overview | No reconciliation metrics or persisted lookup evidence; dashboard success ratio is not a production rolling-window SLO |
-| Delivery | Docker, Helm, Terraform, CI definitions and historical deployment artifacts | Historical hosting evidence does not establish the current feature set or current availability |
+| Stable per-attempt reference + independently committed simulator ledger | Distinguishes local TIMEOUT from prior authorization | Same PostgreSQL availability domain; synthetic authorization |
+| Read-only lookup + durable evidence | Verified/unknown/error observations without authorizing | NOT_FOUND and unknown never imply permission |
+| Explicit confirmation + instruction version lock | Local success resolution; stale/concurrent decisions fenced | No arbitrary manual success or SQL permission override |
+| Investigation drawer + audit timeline | Review reference, evidence and permitted action | Latest 20 investigations/50 audits; global demo dataset |
+| Bounded lookup + expiring durable claim | Resume investigation after interruption | Explicit operator action; no automatic financial retry |
+| Low-cardinality metrics + repeatable game-day | Inspectable failure and recovery behavior | Local acceptance criteria, not production SLOs |
 
 ## Source map
 
-- [PaymentService](../../backend/src/main/java/dev/vpulse/payment/PaymentService.java): merchant create identity, short transactions, replay claim, permission recheck and finalization version fence.
-- [RailGateway](../../backend/src/main/java/dev/vpulse/payment/RailGateway.java): simulated outcomes and replay policy.
-- [StalledPaymentRecovery](../../backend/src/main/java/dev/vpulse/payment/StalledPaymentRecovery.java): stale processing parking, not provider lookup.
-- [PaymentController](../../backend/src/main/java/dev/vpulse/payment/PaymentController.java): existing API and privileged controls.
-- [V4 replay migration](../../backend/src/main/resources/db/migration/V4__explicit_replay_safety.sql): historical permissions default false.
-- [Operator dashboard](../../components/reliability-control-plane.tsx), [BFF](../../lib/backend-proxy.ts), [security](../../backend/src/main/java/dev/vpulse/shared/SecurityConfiguration.java).
-- [Integration tests](../../backend/src/test/java/dev/vpulse/PaymentReliabilityIntegrationTest.java), [CI workflow](../../.github/workflows/quality.yml).
-
-## Scope of this delivery
-
-Document implemented guarantees, correct obsolete timeout/replay instructions, define a **future** reconciliation contract and acceptance gates, and provide an honest demo/interview handoff. No code or new screenshots/game-day measurements are introduced. See [contract](payment-reconciliation-contract.md), [decisions](recovery-decision-matrix.md), [acceptance](acceptance-tests.md), [incident analysis](incident-report.md), [operations](operations-handoff.md), and [demo](customer-demo-script.md).
+- [Provider interface](../../backend/src/main/java/dev/vpulse/payment/ProviderOutcomeLookup.java), [simulator](../../backend/src/main/java/dev/vpulse/payment/SimulatedPaymentProvider.java), [gateway](../../backend/src/main/java/dev/vpulse/payment/RailGateway.java).
+- [Reconciliation service](../../backend/src/main/java/dev/vpulse/payment/PaymentReconciliationService.java), [controller](../../backend/src/main/java/dev/vpulse/payment/PaymentReconciliationController.java), [V5](../../backend/src/main/resources/db/migration/V5__provider_reconciliation.sql).
+- [Payment service](../../backend/src/main/java/dev/vpulse/payment/PaymentService.java), [stale processing recovery](../../backend/src/main/java/dev/vpulse/payment/StalledPaymentRecovery.java).
+- [Investigation UI](../../components/payment-investigation.tsx), [BFF](../../lib/backend-proxy.ts), [security](../../backend/src/main/java/dev/vpulse/shared/SecurityConfiguration.java).
+- [Tests](acceptance-tests.md), [decisions](recovery-decision-matrix.md), [operations](operations-handoff.md), [demo](customer-demo-script.md).
